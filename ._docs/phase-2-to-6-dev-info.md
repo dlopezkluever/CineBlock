@@ -231,11 +231,30 @@ Phase 5 — Mannequin System: File Changes
 
   src/__tests__/mannequinPhase5.test.ts — 16 tests covering add/update/remove placements,   visibility toggles, shot isolation, reset
 
-  [CineBlock] PropMannequin mounted: gary at 
-(3) [-1.4643326886883554, -0.8351604051577424, 0.36354342564695674]
-Mannequins.tsx:77 [CineBlock] PropMannequin mounted: gary at 
-(3) [-1.4643326886883554, 0.03325701243685664, 0.36354342564695674]
-Mannequins.tsx:77 [CineBlock] PropMannequin mounted: gary at 
-(3) [0.23219784601777116, 0.03325701243685664, 0.36354342564695674]
-Mannequins.tsx:77 [CineBlock] PropMannequin mounted: gary at 
-(3) [0.23219784601777116, 0.3833987521072585, 0.36354342564695674] 
+## Phase 6: Bug Fixes & Polish
+
+6.1 — MannequinOverlay Two-Pass Rendering
+- Mannequins rendered via `MannequinOverlay` portal using `createPortal` into a separate `THREE.Scene`
+- `useFrame` (priority 1) takes over rendering: renders main scene first, clears depth buffer, then renders overlay scene on top
+- Solves SparkJS Gaussian splats overwriting standard Three.js meshes regardless of renderOrder/depthTest
+- File: `src/components/Mannequins.tsx` — `MannequinOverlay` component
+
+6.2 — OrbitControls Ref Threading (Gizmo Drag Fix)
+- Problem: R3F's `createPortal` creates a mirrored Zustand store — `useThree(state => state.controls)` inside the portal returns a stale copy, not the actual OrbitControls instance
+- drei's built-in TransformControls ↔ OrbitControls disable mechanism fails across portal boundaries
+- Fix: Thread actual OrbitControls ref as a React prop from StudioView → SceneControls (populates it) → MannequinScene → CharacterMannequin/PropMannequin → MannequinGizmo
+- `MannequinGizmo` listens for `dragging-changed` event on TransformControls and manually toggles `orbitControlsRef.current.enabled`
+- React props are preserved across R3F portals (only the Zustand store is mirrored, not React context/props)
+
+  File changes:
+  - `src/components/Mannequins.tsx` — Added `orbitControlsRef` prop to `CharacterMannequinProps`, `PropMannequinProps`, `MannequinGizmoProps`, `MannequinSceneProps`. `MannequinGizmo` uses direct ref instead of `useThree`.
+  - `src/views/StudioView.tsx` — `SceneControls` accepts `controlsRef` from parent. Added `orbitControlsRef` in StudioView, passed to both `SceneControls` and `MannequinScene`.
+
+6.3 — Mannequin Visibility Persistence Across Shot Switches
+- Problem: `SET_ASSET_VISIBILITY` effect on shot switch reset visibility based solely on `activeShot.assetIds` (Setup checkboxes), ignoring whether the asset had a mannequin placed in that shot
+- Sidebar showed "Remove" (checks placement existence) but mannequin didn't render (checks visibility) — inconsistent state
+- Fix: Visibility reset now also considers mannequin placements — if an asset has a placement in the active shot, it's always visible regardless of `assetIds`
+- Added `state.mannequinPlacements` to the effect's dependency array
+
+  File changes:
+  - `src/views/StudioView.tsx` — Shot-switch visibility effect now checks `state.mannequinPlacements.some(m => m.assetId === a.id && m.shotId === activeShot.id)` before setting visibility
