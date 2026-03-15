@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
 import { uploadAndGenerate } from '../services/marbleApi';
-import type { AzimuthSlot, CineBlockShot } from '../types';
+import type { AzimuthSlot, CineBlockShot, AspectRatioKey } from '../types';
+import { ASPECT_RATIOS } from '../types';
 
 const ASSET_COLORS = ['#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444', '#F59E0B', '#EC4899', '#06B6D4'];
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -480,6 +481,40 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
             </svg>
             Add Shot
           </button>
+        </section>
+
+        {/* ── Section D — Aspect Ratio ─────────────────────────────────── */}
+        <section className="space-y-3">
+          <h3 className="text-lg font-semibold text-zinc-200">D. Aspect Ratio</h3>
+          <p className="text-sm text-zinc-500">Choose the framing format for your viewfinder.</p>
+          <div className="flex gap-3">
+            {(Object.keys(ASPECT_RATIOS) as AspectRatioKey[]).map((key) => (
+              <button
+                key={key}
+                onClick={() => dispatch({ type: 'SET_ASPECT_RATIO', aspectRatio: key })}
+                className={`flex flex-col items-center gap-2 px-4 py-3 rounded-lg border transition-colors ${
+                  state.aspectRatio === key
+                    ? 'bg-blue-600/20 border-blue-500/50 text-white'
+                    : 'bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                }`}
+              >
+                <div
+                  className={`rounded-sm ${
+                    state.aspectRatio === key
+                      ? 'bg-blue-400/60 border border-blue-400/80'
+                      : 'bg-zinc-600/40 border border-zinc-600'
+                  }`}
+                  style={{
+                    aspectRatio: `${ASPECT_RATIOS[key]}`,
+                    ...(ASPECT_RATIOS[key] >= 1
+                      ? { width: '48px' }
+                      : { height: '48px' }),
+                  }}
+                />
+                <span className="text-xs font-mono">{key}</span>
+              </button>
+            ))}
+          </div>
         </section>
 
         {/* ── Error display ──────────────────────────────────────────────── */}
