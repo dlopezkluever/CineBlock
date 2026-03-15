@@ -58,6 +58,7 @@ export function GaussianSplat({ spzUrl, onLoaded }: GaussianSplatProps) {
     scene.add(spark);
 
     const splat = new SplatMesh({ url: spzUrl });
+    splat.rotation.x = Math.PI; // Convert Y-down (CV) to Y-up (Three.js)
     splatRef.current = splat;
     scene.add(splat);
 
@@ -103,7 +104,7 @@ export function ColliderMesh({ colliderUrl, onLoaded }: ColliderMeshProps) {
   }, [gltfScene, onLoaded]);
 
   return (
-    <primitive ref={meshRef} object={gltfScene} visible={false} />
+    <primitive ref={meshRef} object={gltfScene} visible={false} rotation={[Math.PI, 0, 0]} />
   );
 }
 
