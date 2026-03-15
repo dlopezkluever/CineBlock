@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { CineBlockState, AzimuthSlot } from './types';
+import type { CineBlockState, AzimuthSlot, AspectRatioKey } from './types';
 
 // --- Actions ---
 
@@ -24,6 +24,7 @@ export type Action =
   | { type: 'REMOVE_MANNEQUIN'; assetId: string; shotId: string }
   | { type: 'ADD_CAPTURE'; capture: CineBlockState['captures'][number] }
   | { type: 'TOGGLE_HERO'; captureId: string }
+  | { type: 'SET_ASPECT_RATIO'; aspectRatio: AspectRatioKey }
   | { type: 'RESET' };
 
 // --- Initial State ---
@@ -45,6 +46,7 @@ export const initialState: CineBlockState = {
   worldError: null,
   spzUrl: null,
   colliderUrl: null,
+  aspectRatio: '16:9',
   activeShotIndex: 0,
   activeFrameType: 'start',
   assetVisibility: {},
@@ -215,6 +217,9 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         }),
       };
     }
+
+    case 'SET_ASPECT_RATIO':
+      return { ...state, aspectRatio: action.aspectRatio };
 
     case 'RESET':
       return initialState;
