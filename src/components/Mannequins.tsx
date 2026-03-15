@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
-import { useThree, useFrame } from '@react-three/fiber';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { useThree, useFrame, createPortal } from '@react-three/fiber';
 import { Html, TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { MannequinPlacement, CineBlockAsset } from '../types';
@@ -121,6 +121,12 @@ interface MannequinGizmoProps {
 
 function MannequinGizmo({ target, onTransformEnd }: MannequinGizmoProps) {
   const [mode, setMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tcRef = useRef<any>(null);
+  // Get OrbitControls from R3F store — needed because the portal breaks drei's
+  // automatic OrbitControls disable during TransformControls drag.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const controls = useThree((state) => state.controls) as any;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -131,6 +137,19 @@ function MannequinGizmo({ target, onTransformEnd }: MannequinGizmoProps) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Manually disable OrbitControls while dragging the gizmo.
+  // The MannequinOverlay portal prevents drei's built-in handling from working.
+  useEffect(() => {
+    const tc = tcRef.current;
+    if (!tc || !controls) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onDrag = (event: any) => {
+      controls.enabled = !event.value;
+    };
+    tc.addEventListener('dragging-changed', onDrag);
+    return () => tc.removeEventListener('dragging-changed', onDrag);
+  }, [controls]);
 
   const handleChange = useCallback(() => {
     if (!target.current) return;
@@ -144,6 +163,7 @@ function MannequinGizmo({ target, onTransformEnd }: MannequinGizmoProps) {
 
   return (
     <TransformControls
+      ref={tcRef}
       object={target.current!}
       mode={mode}
       onMouseUp={handleChange}
@@ -311,4 +331,27 @@ export function MannequinScene({
       )}
     </>
   );
+}
+
+// --- Overlay renderer: renders mannequins in a separate pass on top of Gaussian splats ---
+
+export function MannequinOverlay({ children }: { children: React.ReactNode }) {
+  const overlayScene = useMemo(() => new THREE.Scene(), []);
+
+  // Taking over rendering: render main scene first, then overlay with cleared depth
+  useFrame(({ gl, scene, camera }) => {
+    // Step 1: render the main scene (splats, collider, etc.)
+    gl.render(scene, camera);
+
+    // Step 2: clear only the depth buffer, keep color
+    gl.autoClear = false;
+    gl.clearDepth();
+
+    // Step 3: render the overlay scene (mannequins + lights) on top
+    gl.render(overlayScene, camera);
+
+    gl.autoClear = true;
+  }, 1); // priority > 0 = take over rendering
+
+  return <>{createPortal(children, overlayScene)}</>;
 }
