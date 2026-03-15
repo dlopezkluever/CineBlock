@@ -35,9 +35,10 @@ function patchCameraClone(camera: THREE.Camera) {
 
 interface GaussianSplatProps {
   spzUrl: string;
+  onLoaded?: () => void;
 }
 
-export function GaussianSplat({ spzUrl }: GaussianSplatProps) {
+export function GaussianSplat({ spzUrl, onLoaded }: GaussianSplatProps) {
   const { gl, scene, camera } = useThree();
   const sparkRef = useRef<SparkRenderer | null>(null);
   const splatRef = useRef<SplatMesh | null>(null);
@@ -63,6 +64,7 @@ export function GaussianSplat({ spzUrl }: GaussianSplatProps) {
     splat.initialized.then(() => {
       const box = splat.getBoundingBox();
       console.log('[CineBlock] Splat loaded, bounding box:', box.min.toArray(), box.max.toArray());
+      onLoaded?.();
     });
 
     return () => {
@@ -111,12 +113,13 @@ interface MarbleWorldProps {
   spzUrl: string;
   colliderUrl: string | null;
   onColliderLoaded?: (mesh: THREE.Object3D) => void;
+  onSplatLoaded?: () => void;
 }
 
-export default function MarbleWorld({ spzUrl, colliderUrl, onColliderLoaded }: MarbleWorldProps) {
+export default function MarbleWorld({ spzUrl, colliderUrl, onColliderLoaded, onSplatLoaded }: MarbleWorldProps) {
   return (
     <>
-      <GaussianSplat spzUrl={spzUrl} />
+      <GaussianSplat spzUrl={spzUrl} onLoaded={onSplatLoaded} />
       {colliderUrl && (
         <ColliderMesh colliderUrl={colliderUrl} onLoaded={onColliderLoaded} />
       )}
