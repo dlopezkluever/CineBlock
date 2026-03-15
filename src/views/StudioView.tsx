@@ -39,12 +39,13 @@ function TestCube() {
 
 function SceneControls({
   resetRef,
+  controlsRef,
 }: {
   resetRef: React.MutableRefObject<(() => void) | null>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  controlsRef: React.MutableRefObject<any>;
 }) {
   const { camera } = useThree();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const controlsRef = useRef<any>(null);
 
   useEffect(() => {
     resetRef.current = () => {
@@ -58,7 +59,7 @@ function SceneControls({
     return () => {
       resetRef.current = null;
     };
-  }, [camera, resetRef]);
+  }, [camera, resetRef, controlsRef]);
 
   return <OrbitControls ref={controlsRef} makeDefault />;
 }
@@ -78,6 +79,8 @@ export default function StudioView({
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   const viewfinderRef = useRef<HTMLDivElement>(null);
   const cameraResetRef = useRef<(() => void) | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const orbitControlsRef = useRef<any>(null);
   const prevShotIndexRef = useRef(state.activeShotIndex);
 
   // Existing UI state
@@ -401,10 +404,11 @@ export default function StudioView({
                 placingAssetId={placingAssetId}
                 onPlace={handlePlace}
                 onCancelPlace={handleCancelPlace}
+                orbitControlsRef={orbitControlsRef}
               />
             </MannequinOverlay>
 
-            <SceneControls resetRef={cameraResetRef} />
+            <SceneControls resetRef={cameraResetRef} controlsRef={orbitControlsRef} />
           </Canvas>
 
           {/* SPZ loading indicator */}
