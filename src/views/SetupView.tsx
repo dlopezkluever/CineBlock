@@ -377,7 +377,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
 
       dispatch({
         type: 'SET_WORLD_DATA',
-        worldId: world.id,
+        worldId: world.world_id,
         spzUrl: world.assets.splats.spz_urls['500k'],
         colliderUrl: world.assets.mesh.collider_mesh_url,
       });
