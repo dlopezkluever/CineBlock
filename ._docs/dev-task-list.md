@@ -309,3 +309,9 @@
 | Marble rate limit | 6 generations/min — pre-generate worlds for demo day |
 | SPZ resolution | Use 500k for real-time nav; 100k if performance is an issue |
 | Collider mesh | GLB from Marble — loaded invisible, used only for raycast placement |
+
+❯  write a document, that is tight, not overly verbose, but that basically take the following doc: 'c:/Users/Daniel Lopez/Desktop/Hackathons/World Models/CineBlock/._docs/marble-api-info.txt' which  has all the docs for hte marble api for world models, and baiscally make a      
+ 
+tight, markdown file document with only the key information, that is easy for the agent to read, for how to use the api, with regard to the specs of our project (like what our application will use, not stuff that we won't hope to touch ever) here is our porjects specs so you    
+know what all we will be needing from the api 'c:/Users/Daniel Lopez/Desktop/Hackathons/World Models/CineBlock/._docs/prd-revised.md' ... also please update the prd-revised so it describes how to use the api correctly, but not in a way that will destroy the functionality, just  
+basically make sure it describes how to use the api correctly, we still need all the funcitonality descrieb correctly. Use the AskUSerQuestion if there are any big changes you are going to need to do to our specs bescause of the api or any other questions or concerns
