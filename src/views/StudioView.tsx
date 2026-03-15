@@ -1,5 +1,9 @@
+import { useRef, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import { useCineBlockState } from '../store';
+import MarbleWorld from '../components/MarbleWorld';
+import type * as THREE from 'three';
 
 function TestCube() {
   return (
@@ -11,6 +15,15 @@ function TestCube() {
 }
 
 export default function StudioView({ onNavigate }: { onNavigate: (view: 'setup' | 'results') => void }) {
+  const state = useCineBlockState();
+  const colliderRef = useRef<THREE.Object3D | null>(null);
+
+  const handleColliderLoaded = useCallback((mesh: THREE.Object3D) => {
+    colliderRef.current = mesh;
+  }, []);
+
+  const hasWorld = state.worldStatus === 'ready' && state.spzUrl;
+
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
@@ -40,16 +53,46 @@ export default function StudioView({ onNavigate }: { onNavigate: (view: 'setup' 
           >
             <ambientLight intensity={0.5} />
             <directionalLight position={[5, 5, 5]} intensity={1} />
-            <TestCube />
+
+            {hasWorld ? (
+              <MarbleWorld
+                spzUrl={state.spzUrl!}
+                colliderUrl={state.colliderUrl}
+                onColliderLoaded={handleColliderLoaded}
+              />
+            ) : (
+              <>
+                <TestCube />
+                <gridHelper args={[10, 10, '#444444', '#222222']} />
+              </>
+            )}
+
             <OrbitControls />
-            <gridHelper args={[10, 10, '#444444', '#222222']} />
           </Canvas>
         </div>
 
         {/* Sidebar */}
         <div className="w-[280px] bg-zinc-900 border-l border-zinc-700 p-4 overflow-y-auto">
           <h3 className="text-sm font-semibold text-zinc-300 mb-3">Shot List</h3>
-          <p className="text-xs text-zinc-500">Select a shot to begin capturing frames.</p>
+          {state.shots.length === 0 ? (
+            <p className="text-xs text-zinc-500">No shots defined.</p>
+          ) : (
+            <div className="space-y-2">
+              {state.shots.map((shot, i) => (
+                <div
+                  key={shot.id}
+                  className={`p-2 rounded text-xs cursor-pointer transition-colors ${
+                    i === state.activeShotIndex
+                      ? 'bg-blue-600/20 border border-blue-500/40 text-white'
+                      : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                  }`}
+                >
+                  <span className="font-medium">{shot.name || `Shot ${i + 1}`}</span>
+                  <span className="ml-2 text-zinc-500">{shot.cameraType}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="mt-6">
             <h3 className="text-sm font-semibold text-zinc-300 mb-3">Capture Tray</h3>

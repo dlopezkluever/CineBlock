@@ -50,7 +50,7 @@ export const initialState: CineBlockState = {
 
 // --- Reducer ---
 
-function reducer(state: CineBlockState, action: Action): CineBlockState {
+export function reducer(state: CineBlockState, action: Action): CineBlockState {
   switch (action.type) {
     case 'NAVIGATE':
       return { ...state, currentView: action.view };

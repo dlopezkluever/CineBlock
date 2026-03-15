@@ -31,3 +31,4 @@ dist-ssr
 ui-images/
 
 ._docs/hackathon-info.md
+.claude 
