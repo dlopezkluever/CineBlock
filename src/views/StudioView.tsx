@@ -1,10 +1,30 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
 import MarbleWorld from '../components/MarbleWorld';
-import { MannequinScene } from '../components/Mannequins';
+import { MannequinScene, MannequinOverlay } from '../components/Mannequins';
 import type * as THREE from 'three';
+
+// --- Constants ---
+
+type AspectRatioKey = '16:9' | '2.39:1' | '4:3' | '9:16';
+const ASPECT_RATIOS: Record<AspectRatioKey, number> = {
+  '16:9': 16 / 9,
+  '2.39:1': 2.39,
+  '4:3': 4 / 3,
+  '9:16': 9 / 16,
+};
+
+type LensKey = '35mm' | '50mm' | '85mm';
+const LENSES: Record<LensKey, { focal: string; aperture: string }> = {
+  '35mm': { focal: '35MM', aperture: 'f/1.8' },
+  '50mm': { focal: '50MM', aperture: 'f/1.4' },
+  '85mm': { focal: '85MM', aperture: 'f/1.2' },
+};
+const LENS_ORDER: LensKey[] = ['35mm', '50mm', '85mm'];
+
+// --- Test cube fallback ---
 
 function TestCube() {
   return (
@@ -15,6 +35,36 @@ function TestCube() {
   );
 }
 
+// --- Camera controls with reset capability ---
+
+function SceneControls({
+  resetRef,
+}: {
+  resetRef: React.MutableRefObject<(() => void) | null>;
+}) {
+  const { camera } = useThree();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const controlsRef = useRef<any>(null);
+
+  useEffect(() => {
+    resetRef.current = () => {
+      camera.position.set(3, 2, 3);
+      camera.lookAt(0, 0, 0);
+      if (controlsRef.current) {
+        controlsRef.current.target.set(0, 0, 0);
+        controlsRef.current.update();
+      }
+    };
+    return () => {
+      resetRef.current = null;
+    };
+  }, [camera, resetRef]);
+
+  return <OrbitControls ref={controlsRef} makeDefault />;
+}
+
+// --- Main StudioView ---
+
 export default function StudioView({
   onNavigate,
 }: {
@@ -22,18 +72,31 @@ export default function StudioView({
 }) {
   const state = useCineBlockState();
   const dispatch = useCineBlockDispatch();
+
+  // Refs
   const colliderRef = useRef<THREE.Object3D | null>(null);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   const viewfinderRef = useRef<HTMLDivElement>(null);
+  const cameraResetRef = useRef<(() => void) | null>(null);
+  const prevShotIndexRef = useRef(state.activeShotIndex);
+
+  // Existing UI state
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [placingAssetId, setPlacingAssetId] = useState<string | null>(null);
-  const prevShotIndexRef = useRef(state.activeShotIndex);
 
-  const handleColliderLoaded = useCallback((mesh: THREE.Object3D) => {
-    colliderRef.current = mesh;
-  }, []);
+  // Phase 6 UI state
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioKey>('16:9');
+  const [showGrid, setShowGrid] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedLens, setSelectedLens] = useState<LensKey>('35mm');
+  const [showSettings, setShowSettings] = useState(false);
+  const [splatLoaded, setSplatLoaded] = useState(false);
+  const [captureFlash, setCaptureFlash] = useState(false);
 
+  // Derived values
+  const aspectRatioValue = ASPECT_RATIOS[aspectRatio];
+  const lensInfo = LENSES[selectedLens];
   const hasWorld = state.worldStatus === 'ready' && state.spzUrl;
   const activeShot = state.shots[state.activeShotIndex] ?? null;
   const shotCaptures = activeShot
@@ -41,13 +104,30 @@ export default function StudioView({
     : [];
   const startCaptures = shotCaptures.filter((c) => c.frameType === 'start');
   const endCaptures = shotCaptures.filter((c) => c.frameType === 'end');
-
-  // Mannequin placements for the active shot
   const activePlacements = activeShot
     ? state.mannequinPlacements.filter((m) => m.shotId === activeShot.id)
     : [];
 
-  // Reset visibility when switching shots — match the shot's assetIds
+  // Viewfinder sizing: use width-based for ultra-wide, height-based otherwise
+  const viewfinderStyle: React.CSSProperties = {
+    aspectRatio: `${aspectRatioValue}`,
+    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
+    ...(aspectRatioValue > 2
+      ? { width: '90%', maxHeight: '85%' }
+      : { height: '80%', maxWidth: '92%' }),
+  };
+
+  // --- Callbacks ---
+
+  const handleColliderLoaded = useCallback((mesh: THREE.Object3D) => {
+    colliderRef.current = mesh;
+  }, []);
+
+  const handleSplatLoaded = useCallback(() => {
+    setSplatLoaded(true);
+  }, []);
+
+  // Reset visibility on shot switch
   useEffect(() => {
     if (state.activeShotIndex !== prevShotIndexRef.current) {
       prevShotIndexRef.current = state.activeShotIndex;
@@ -63,7 +143,7 @@ export default function StudioView({
     }
   }, [state.activeShotIndex, activeShot, state.assets, dispatch]);
 
-  // Handle mannequin placement
+  // Mannequin placement
   const handlePlace = useCallback(
     (point: [number, number, number]) => {
       if (!placingAssetId || !activeShot) return;
@@ -106,8 +186,13 @@ export default function StudioView({
     [dispatch],
   );
 
+  // Capture pipeline
   const handleCapture = useCallback(() => {
     if (!glRef.current || !viewfinderRef.current || !activeShot) return;
+
+    // Flash effect
+    setCaptureFlash(true);
+    setTimeout(() => setCaptureFlash(false), 150);
 
     const canvas = glRef.current.domElement;
     const canvasRect = canvas.getBoundingClientRect();
@@ -151,44 +236,129 @@ export default function StudioView({
     img.src = fullDataUrl;
   }, [activeShot, state.activeFrameType, state.captures, dispatch]);
 
+  // Lens cycle
+  const cycleLens = useCallback(() => {
+    setSelectedLens((prev) => {
+      const idx = LENS_ORDER.indexOf(prev);
+      return LENS_ORDER[(idx + 1) % LENS_ORDER.length];
+    });
+  }, []);
+
+  // Camera reset
+  const handleResetCamera = useCallback(() => {
+    cameraResetRef.current?.();
+  }, []);
+
+  // Close studio with confirmation
+  const handleClose = useCallback(() => {
+    if (
+      state.captures.length > 0 &&
+      !window.confirm("Go back to Setup? You'll lose your captures.")
+    )
+      return;
+    onNavigate('setup');
+  }, [state.captures.length, onNavigate]);
+
+  // --- Keyboard shortcuts ---
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      switch (e.key) {
+        case ' ':
+          e.preventDefault();
+          handleCapture();
+          break;
+        case '1':
+          dispatch({ type: 'SET_FRAME_TYPE', frameType: 'start' });
+          break;
+        case '2':
+          dispatch({ type: 'SET_FRAME_TYPE', frameType: 'end' });
+          break;
+        case 'Escape':
+          if (lightboxUrl) {
+            setLightboxUrl(null);
+          } else if (showSettings) {
+            setShowSettings(false);
+          } else if (placingAssetId) {
+            setPlacingAssetId(null);
+          } else {
+            setSelectedAssetId(null);
+          }
+          break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleCapture, lightboxUrl, showSettings, placingAssetId, dispatch]);
+
+  // --- Render ---
+
   return (
     <div className="flex flex-col h-full">
-      {/* ── Top toolbar ── */}
-      <div className="flex items-center justify-between px-4 py-2 bg-zinc-800 border-b border-zinc-700">
-        <button
-          onClick={() => {
-            if (
-              state.captures.length > 0 &&
-              !window.confirm(
-                'Go back to Setup? You\'ll lose your captures.',
-              )
-            )
-              return;
-            onNavigate('setup');
-          }}
-          className="text-sm text-zinc-400 hover:text-white transition-colors"
-        >
-          &larr; Back to Setup
-        </button>
-        <span className="text-sm font-medium text-zinc-300">
-          Studio
+      {/* ════════ Top bar ════════ */}
+      <div className="flex items-center justify-between px-4 py-2 bg-zinc-800/90 border-b border-zinc-700/50 backdrop-blur-sm">
+        {/* Left — Lens controls (cosmetic) */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={cycleLens}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-900/80 border border-zinc-700/50 text-xs text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+            title="Cycle lens (cosmetic)"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="6" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+            {selectedLens}
+          </button>
+          <div className="flex items-center gap-1 text-[10px] text-zinc-600 select-none">
+            <span className="cursor-default">&minus;</span>
+            <span className="px-1.5 py-0.5 rounded bg-zinc-900/50 text-zinc-500 font-mono">
+              100%
+            </span>
+            <span className="cursor-default">+</span>
+          </div>
+        </div>
+
+        {/* Center — Title + placement indicator */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-zinc-300">Studio</span>
           {placingAssetId && (
-            <span className="ml-2 text-amber-400 text-xs">
+            <span className="text-amber-400 text-xs animate-pulse">
               Click to place &middot; Esc to cancel
             </span>
           )}
-        </span>
-        <button
-          onClick={() => onNavigate('results')}
-          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          Done &rarr; Results
-        </button>
+        </div>
+
+        {/* Right — Done + Close */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onNavigate('results')}
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium"
+          >
+            Done &rarr; Results
+          </button>
+          <button
+            onClick={handleClose}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-500 hover:text-white hover:bg-zinc-700 transition-colors text-lg"
+            title="Close Studio"
+          >
+            &times;
+          </button>
+        </div>
       </div>
 
-      {/* ── Main split: canvas | sidebar ── */}
+      {/* ════════ Main split: canvas | sidebar ════════ */}
       <div className="flex flex-1 min-h-0">
-        {/* ─── 3D Canvas + overlays ─── */}
+        {/* ──── 3D Canvas + overlays ──── */}
         <div className="flex-1 relative bg-black">
           <Canvas
             gl={{ antialias: false, preserveDrawingBuffer: true }}
@@ -208,6 +378,7 @@ export default function StudioView({
                 spzUrl={state.spzUrl!}
                 colliderUrl={state.colliderUrl}
                 onColliderLoaded={handleColliderLoaded}
+                onSplatLoaded={handleSplatLoaded}
               />
             ) : (
               <>
@@ -216,33 +387,135 @@ export default function StudioView({
               </>
             )}
 
-            <MannequinScene
-              assets={state.assets}
-              placements={activePlacements}
-              visibility={state.assetVisibility}
-              selectedAssetId={selectedAssetId}
-              onSelect={setSelectedAssetId}
-              onTransformEnd={handleTransformEnd}
-              colliderRef={colliderRef}
-              placingAssetId={placingAssetId}
-              onPlace={handlePlace}
-              onCancelPlace={handleCancelPlace}
-            />
+            <MannequinOverlay>
+              <ambientLight intensity={0.5} />
+              <directionalLight position={[5, 5, 5]} intensity={1} />
+              <MannequinScene
+                assets={state.assets}
+                placements={activePlacements}
+                visibility={state.assetVisibility}
+                selectedAssetId={selectedAssetId}
+                onSelect={setSelectedAssetId}
+                onTransformEnd={handleTransformEnd}
+                colliderRef={colliderRef}
+                placingAssetId={placingAssetId}
+                onPlace={handlePlace}
+                onCancelPlace={handleCancelPlace}
+              />
+            </MannequinOverlay>
 
-            <OrbitControls makeDefault />
+            <SceneControls resetRef={cameraResetRef} />
           </Canvas>
 
-          {/* Viewfinder overlay — 16:9, centred, dark mask outside */}
+          {/* SPZ loading indicator */}
+          {hasWorld && !splatLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/60 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-zinc-400">
+                  Loading world&hellip;
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* World error state */}
+          {state.worldStatus === 'error' && (
+            <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/70">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center">
+                  <span className="text-red-400 text-xl">!</span>
+                </div>
+                <p className="text-sm text-zinc-300">Failed to load world</p>
+                {state.worldError && (
+                  <p className="text-xs text-zinc-500 max-w-xs">
+                    {state.worldError}
+                  </p>
+                )}
+                <button
+                  onClick={() => onNavigate('setup')}
+                  className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+                >
+                  &larr; Back to Setup to retry
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Capture flash effect */}
+          {captureFlash && (
+            <div className="absolute inset-0 bg-white/15 pointer-events-none z-30" />
+          )}
+
+          {/* ──── Viewfinder overlay ──── */}
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <div
               ref={viewfinderRef}
-              className="h-[80%] max-w-[92%] aspect-video border border-white/20 rounded-sm"
-              style={{ boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)' }}
-            />
+              className="border border-white/20 rounded-sm relative"
+              style={viewfinderStyle}
+            >
+              {/* REC indicator — top left */}
+              <div className="absolute top-2.5 left-3 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-[10px] font-mono text-red-500/80 tracking-wider">
+                  REC
+                </span>
+              </div>
+
+              {/* AF indicator — top right */}
+              <div className="absolute top-2.5 right-3">
+                <span className="text-[10px] font-mono text-green-500/60 tracking-wider">
+                  AF
+                </span>
+              </div>
+
+              {/* Rule-of-thirds grid */}
+              {showGrid && (
+                <>
+                  <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/[0.08]" />
+                  <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/[0.08]" />
+                  <div className="absolute top-1/3 left-0 right-0 h-px bg-white/[0.08]" />
+                  <div className="absolute top-2/3 left-0 right-0 h-px bg-white/[0.08]" />
+                </>
+              )}
+
+              {/* Lens info badge — bottom left */}
+              <div className="absolute bottom-2.5 left-3 flex items-center gap-3 text-[10px] font-mono text-white/40 tracking-wider">
+                <span>{lensInfo.focal}</span>
+                <span>{lensInfo.aperture}</span>
+                <span>{aspectRatio}</span>
+              </div>
+
+              {/* Frame type indicator — bottom right */}
+              <div className="absolute bottom-2.5 right-3">
+                <span className="text-[10px] font-mono text-white/30">
+                  {state.activeFrameType === 'start' ? 'START' : 'END'} F
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* Capture toolbar — floating pill */}
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-sm rounded-full px-5 py-2.5 border border-zinc-700/60">
+          {/* Expand sidebar button (when collapsed) */}
+          {sidebarCollapsed && (
+            <button
+              onClick={() => setSidebarCollapsed(false)}
+              className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-zinc-900/80 backdrop-blur-sm border border-zinc-700/50 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+              title="Show sidebar"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          )}
+
+          {/* ──── Bottom floating toolbar ──── */}
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-900/90 backdrop-blur-sm rounded-full px-4 py-2 border border-zinc-700/60 shadow-2xl">
             {/* Frame type toggle */}
             <div className="flex items-center bg-zinc-800 rounded-full overflow-hidden text-xs">
               <button
@@ -254,6 +527,7 @@ export default function StudioView({
                     ? 'bg-blue-600 text-white'
                     : 'text-zinc-400 hover:text-white'
                 }`}
+                title="Start Frame (1)"
               >
                 Start
               </button>
@@ -266,32 +540,208 @@ export default function StudioView({
                     ? 'bg-blue-600 text-white'
                     : 'text-zinc-400 hover:text-white'
                 }`}
+                title="End Frame (2)"
               >
                 End
               </button>
             </div>
+
+            <div className="w-px h-5 bg-zinc-700/50" />
 
             {/* Capture button */}
             <button
               onClick={handleCapture}
               disabled={!activeShot}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium px-4 py-1.5 rounded-full transition-colors"
+              title="Capture (Space)"
             >
               <span className="w-3 h-3 rounded-full bg-white/90 inline-block" />
               Capture
             </button>
+
+            <div className="w-px h-5 bg-zinc-700/50" />
+
+            {/* Reset Camera */}
+            <button
+              onClick={handleResetCamera}
+              className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              title="Reset Camera"
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M1 4v6h6" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            </button>
+
+            {/* Settings */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSettings((s) => !s)}
+                className={`p-1.5 rounded-full transition-colors ${
+                  showSettings
+                    ? 'text-white bg-zinc-700'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+                title="Settings"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+
+              {/* Settings panel */}
+              {showSettings && (
+                <div
+                  className="absolute bottom-full mb-3 right-0 bg-zinc-900 border border-zinc-700 rounded-xl p-4 shadow-2xl w-60"
+                  style={{ zIndex: 9999 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Aspect Ratio */}
+                  <div className="mb-4">
+                    <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2 block">
+                      Aspect Ratio
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(Object.keys(ASPECT_RATIOS) as AspectRatioKey[]).map(
+                        (r) => (
+                          <button
+                            key={r}
+                            onClick={() => setAspectRatio(r)}
+                            className={`px-2.5 py-1.5 rounded text-xs font-mono transition-colors ${
+                              aspectRatio === r
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Grid toggle */}
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs text-zinc-400">Grid Lines</span>
+                    <button
+                      onClick={() => setShowGrid((g) => !g)}
+                      className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${
+                        showGrid
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {showGrid ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
+                  {/* Keyboard shortcuts reference */}
+                  <div className="pt-3 border-t border-zinc-700/50">
+                    <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2 block">
+                      Shortcuts
+                    </label>
+                    <div className="space-y-1 text-[10px] text-zinc-500">
+                      <div className="flex justify-between">
+                        <span>Capture</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          Space
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Start Frame</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          1
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>End Frame</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          2
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Translate</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          G
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Rotate</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          R
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Scale</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          S
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Cancel / Close</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          Esc
+                        </kbd>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Collapse sidebar toggle */}
+            <button
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                {sidebarCollapsed ? (
+                  <path d="M13 17l5-5-5-5M6 17l5-5-5-5" />
+                ) : (
+                  <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+                )}
+              </svg>
+            </button>
           </div>
         </div>
 
-        {/* ─── Sidebar (280px fixed) ─── */}
-        <div className="w-[280px] flex-shrink-0 bg-zinc-900 border-l border-zinc-700 flex flex-col overflow-hidden">
+        {/* ──── Sidebar ──── */}
+        <div
+          className={`flex-shrink-0 bg-zinc-900 border-l border-zinc-700 flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
+            sidebarCollapsed
+              ? 'w-0 border-l-0 opacity-0'
+              : 'w-[280px] opacity-100'
+          }`}
+        >
           {/* Section 1 — Shot list */}
           <div className="p-4 border-b border-zinc-700/50">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
               Shots
             </h3>
             {state.shots.length === 0 ? (
-              <p className="text-xs text-zinc-600">No shots defined.</p>
+              <p className="text-xs text-zinc-600">
+                No shots defined. Add shots in Setup.
+              </p>
             ) : (
               <div className="space-y-1.5">
                 {state.shots.map((shot, i) => (
@@ -387,12 +837,10 @@ export default function StudioView({
                           : 'border border-transparent'
                       }`}
                     >
-                      {/* Color dot */}
                       <span
                         className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                         style={{ backgroundColor: asset.color }}
                       />
-                      {/* Name */}
                       <span
                         className={`flex-1 truncate ${
                           isVisible ? 'text-zinc-300' : 'text-zinc-600'
@@ -400,7 +848,6 @@ export default function StudioView({
                       >
                         {asset.name || 'Unnamed'}
                       </span>
-                      {/* Visibility toggle */}
                       <button
                         onClick={() =>
                           dispatch({
@@ -417,7 +864,6 @@ export default function StudioView({
                       >
                         {isVisible ? '\u{1F441}' : '\u2013'}
                       </button>
-                      {/* Place / Remove */}
                       {hasPlacement ? (
                         <button
                           onClick={() => {
@@ -472,7 +918,7 @@ export default function StudioView({
               </p>
             ) : (
               <div className="space-y-4">
-                {/* Start frames row */}
+                {/* Start frames */}
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[10px] font-medium text-zinc-400 uppercase">
@@ -512,7 +958,7 @@ export default function StudioView({
                   )}
                 </div>
 
-                {/* End frames row */}
+                {/* End frames */}
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[10px] font-medium text-zinc-400 uppercase">
@@ -557,12 +1003,11 @@ export default function StudioView({
         </div>
       </div>
 
-      {/* ── Lightbox modal ── */}
+      {/* ════════ Lightbox modal ════════ */}
       {lightboxUrl && (
         <div
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
           onClick={() => setLightboxUrl(null)}
-          onKeyDown={(e) => e.key === 'Escape' && setLightboxUrl(null)}
           role="dialog"
           tabIndex={0}
         >
