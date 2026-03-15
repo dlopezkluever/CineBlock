@@ -12,9 +12,10 @@ interface CharacterMannequinProps {
   isSelected: boolean;
   onSelect: () => void;
   onTransformEnd: (pos: [number, number, number], rot: [number, number, number], scl: [number, number, number]) => void;
+  orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
 }
 
-export function CharacterMannequin({ asset, placement, isSelected, onSelect, onTransformEnd }: CharacterMannequinProps) {
+export function CharacterMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef }: CharacterMannequinProps) {
   const groupRef = useRef<THREE.Group>(null!);
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function CharacterMannequin({ asset, placement, isSelected, onSelect, onT
         </Html>
       </group>
       {isSelected && groupRef.current && (
-        <MannequinGizmo target={groupRef} onTransformEnd={onTransformEnd} />
+        <MannequinGizmo target={groupRef} onTransformEnd={onTransformEnd} orbitControlsRef={orbitControlsRef} />
       )}
     </>
   );
@@ -68,9 +69,10 @@ interface PropMannequinProps {
   isSelected: boolean;
   onSelect: () => void;
   onTransformEnd: (pos: [number, number, number], rot: [number, number, number], scl: [number, number, number]) => void;
+  orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
 }
 
-export function PropMannequin({ asset, placement, isSelected, onSelect, onTransformEnd }: PropMannequinProps) {
+export function PropMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef }: PropMannequinProps) {
   const groupRef = useRef<THREE.Group>(null!);
 
   useEffect(() => {
@@ -106,7 +108,7 @@ export function PropMannequin({ asset, placement, isSelected, onSelect, onTransf
         </Html>
       </group>
       {isSelected && groupRef.current && (
-        <MannequinGizmo target={groupRef} onTransformEnd={onTransformEnd} />
+        <MannequinGizmo target={groupRef} onTransformEnd={onTransformEnd} orbitControlsRef={orbitControlsRef} />
       )}
     </>
   );
@@ -117,16 +119,13 @@ export function PropMannequin({ asset, placement, isSelected, onSelect, onTransf
 interface MannequinGizmoProps {
   target: React.RefObject<THREE.Group>;
   onTransformEnd: (pos: [number, number, number], rot: [number, number, number], scl: [number, number, number]) => void;
+  orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
 }
 
-function MannequinGizmo({ target, onTransformEnd }: MannequinGizmoProps) {
+function MannequinGizmo({ target, onTransformEnd, orbitControlsRef }: MannequinGizmoProps) {
   const [mode, setMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tcRef = useRef<any>(null);
-  // Get OrbitControls from R3F store — needed because the portal breaks drei's
-  // automatic OrbitControls disable during TransformControls drag.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const controls = useThree((state) => state.controls) as any;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -138,18 +137,24 @@ function MannequinGizmo({ target, onTransformEnd }: MannequinGizmoProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Manually disable OrbitControls while dragging the gizmo.
-  // The MannequinOverlay portal prevents drei's built-in handling from working.
+  // Disable OrbitControls while dragging the gizmo.
+  // drei's built-in mechanism uses useThree(state => state.controls), which
+  // returns a stale copy inside the MannequinOverlay portal (createPortal
+  // mirrors the R3F store). We bypass this by using the actual OrbitControls
+  // ref passed from the main scene.
   useEffect(() => {
     const tc = tcRef.current;
-    if (!tc || !controls) return;
+    if (!tc) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const onDrag = (event: any) => {
-      controls.enabled = !event.value;
+      const orbit = orbitControlsRef.current;
+      if (orbit && 'enabled' in orbit) {
+        (orbit as { enabled: boolean }).enabled = !event.value;
+      }
     };
     tc.addEventListener('dragging-changed', onDrag);
     return () => tc.removeEventListener('dragging-changed', onDrag);
-  }, [controls]);
+  }, [orbitControlsRef]);
 
   const handleChange = useCallback(() => {
     if (!target.current) return;
@@ -255,6 +260,7 @@ interface MannequinSceneProps {
   placingAssetId: string | null;
   onPlace: (point: [number, number, number]) => void;
   onCancelPlace: () => void;
+  orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
 }
 
 export function MannequinScene({
@@ -268,6 +274,7 @@ export function MannequinScene({
   placingAssetId,
   onPlace,
   onCancelPlace,
+  orbitControlsRef,
 }: MannequinSceneProps) {
   // Click on empty space to deselect
   const { scene } = useThree();
@@ -305,6 +312,7 @@ export function MannequinScene({
               isSelected={isSelected}
               onSelect={() => onSelect(asset.id)}
               onTransformEnd={handleTransformEnd}
+              orbitControlsRef={orbitControlsRef}
             />
           );
         }
@@ -317,6 +325,7 @@ export function MannequinScene({
             isSelected={isSelected}
             onSelect={() => onSelect(asset.id)}
             onTransformEnd={handleTransformEnd}
+            orbitControlsRef={orbitControlsRef}
           />
         );
       })}
