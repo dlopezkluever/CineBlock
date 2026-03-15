@@ -147,13 +147,13 @@ describe('Marble API Client', () => {
         done: true,
         error: null,
         metadata: { progress: { status: 'SUCCEEDED', description: 'Done' }, world_id: 'world-1' },
-        response: { id: 'world-1', display_name: 'Test', assets: {} },
+        response: { world_id: 'world-1', display_name: 'Test', assets: {} },
       };
       globalThis.fetch = mockFetch([{ ok: true, status: 200, body: mockStatus }]);
 
       const result = await pollOperation('op-123');
       expect(result.done).toBe(true);
-      expect(result.response?.id).toBe('world-1');
+      expect(result.response?.world_id).toBe('world-1');
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(url).toBe('https://api.worldlabs.ai/marble/v1/operations/op-123');
@@ -163,25 +163,23 @@ describe('Marble API Client', () => {
   describe('getWorld', () => {
     it('fetches world details', async () => {
       const mockWorld = {
-        world: {
-          id: 'world-1',
-          display_name: 'My World',
-          world_marble_url: 'https://marble.worldlabs.ai/world/world-1',
-          assets: {
-            splats: { spz_urls: { '100k': 'url1', '500k': 'url2', full_res: 'url3' } },
-            mesh: { collider_mesh_url: 'https://example.com/mesh.glb' },
-            imagery: { pano_url: 'https://example.com/pano.jpg' },
-            caption: 'A room',
-            thumbnail_url: 'https://example.com/thumb.jpg',
-          },
+        world_id: 'world-1',
+        display_name: 'My World',
+        world_marble_url: 'https://marble.worldlabs.ai/world/world-1',
+        assets: {
+          splats: { spz_urls: { '100k': 'url1', '500k': 'url2', full_res: 'url3' } },
+          mesh: { collider_mesh_url: 'https://example.com/mesh.glb' },
+          imagery: { pano_url: 'https://example.com/pano.jpg' },
+          caption: 'A room',
+          thumbnail_url: 'https://example.com/thumb.jpg',
         },
       };
       globalThis.fetch = mockFetch([{ ok: true, status: 200, body: mockWorld }]);
 
       const result = await getWorld('world-1');
-      expect(result.world.id).toBe('world-1');
-      expect(result.world.assets.splats.spz_urls['500k']).toBe('url2');
-      expect(result.world.assets.mesh.collider_mesh_url).toBe('https://example.com/mesh.glb');
+      expect(result.world_id).toBe('world-1');
+      expect(result.assets.splats.spz_urls['500k']).toBe('url2');
+      expect(result.assets.mesh.collider_mesh_url).toBe('https://example.com/mesh.glb');
     });
   });
 
@@ -210,7 +208,7 @@ describe('Marble API Client', () => {
         response: null,
       };
       const worldData = {
-        id: 'world-1',
+        world_id: 'world-1',
         display_name: 'CineBlock World',
         world_marble_url: 'https://marble.worldlabs.ai/world/world-1',
         assets: {
@@ -255,7 +253,7 @@ describe('Marble API Client', () => {
         callbacks,
       );
 
-      expect(result.id).toBe('world-1');
+      expect(result.world_id).toBe('world-1');
       expect(result.assets.splats.spz_urls['500k']).toBe('u2');
       expect(result.assets.mesh.collider_mesh_url).toBe('https://example.com/mesh.glb');
 

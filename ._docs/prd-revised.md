@@ -77,14 +77,16 @@ A preset-slot uploader that maps directly to Marble's multi-image API.
 **Mapping to Marble API:**
 ```json
 {
-  "image_settings": {
-    "images": [
-      { "uri": "media_asset_id_front", "azimuth_deg": 0 },
-      { "uri": "media_asset_id_right", "azimuth_deg": 90 },
-      { "uri": "media_asset_id_back", "azimuth_deg": 180 }
+  "display_name": "CineBlock World",
+  "model": "Marble 0.1-mini",
+  "world_prompt": {
+    "type": "multi-image",
+    "multi_image_prompt": [
+      { "azimuth": 0, "content": { "source": "media_asset", "media_asset_id": "<id_front>" } },
+      { "azimuth": 90, "content": { "source": "media_asset", "media_asset_id": "<id_right>" } },
+      { "azimuth": 180, "content": { "source": "media_asset", "media_asset_id": "<id_back>" } }
     ]
-  },
-  "model_name": "Marble 0.1-mini"
+  }
 }
 ```
 
@@ -572,24 +574,30 @@ function MarbleWorld({ spzUrl, colliderUrl }: Props) {
 
 ```json
 {
-  "image_settings": {
-    "images": [
-      { "uri": "<media_asset_id>", "azimuth_deg": 0 },
-      { "uri": "<media_asset_id>", "azimuth_deg": 90 },
-      { "uri": "<media_asset_id>", "azimuth_deg": 180 }
+  "display_name": "CineBlock World",
+  "model": "Marble 0.1-mini",
+  "world_prompt": {
+    "type": "multi-image",
+    "multi_image_prompt": [
+      { "azimuth": 0, "content": { "source": "media_asset", "media_asset_id": "<id>" } },
+      { "azimuth": 90, "content": { "source": "media_asset", "media_asset_id": "<id>" } },
+      { "azimuth": 180, "content": { "source": "media_asset", "media_asset_id": "<id>" } }
     ]
-  },
-  "model_name": "Marble 0.1-mini"
+  }
 }
 ```
 
-### Response Shape (relevant fields)
+### Response Shape (World object — returned inside operation poll `response` field or from GET /worlds/{id})
 
 ```json
 {
   "world_id": "abc123",
+  "display_name": "CineBlock World",
   "world_marble_url": "https://marble.worldlabs.ai/world/abc123",
+  "model": "Marble 0.1-mini",
   "assets": {
+    "caption": "A cozy treehouse interior...",
+    "thumbnail_url": "https://...",
     "splats": {
       "spz_urls": {
         "100k": "https://...",
@@ -602,8 +610,7 @@ function MarbleWorld({ spzUrl, colliderUrl }: Props) {
     },
     "imagery": {
       "pano_url": "https://..."
-    },
-    "caption": "A cozy treehouse interior..."
+    }
   }
 }
 ```

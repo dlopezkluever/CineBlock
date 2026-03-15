@@ -38,10 +38,10 @@
 **Goal:** Upload images → generate world → load Gaussian splat in R3F canvas. This is the highest-risk integration — do it first.
 
 ### 1.1 — Marble API Client
-- [ ] Create `src/services/marbleApi.ts` with functions: `prepareUpload(apiKey)`, `uploadImage(signedUrl, file)`, `generateWorld(apiKey, mediaAssetIds, azimuths)`, `pollOperation(apiKey, operationId)`, `getWorld(apiKey, worldId)`
+- [ ] Create `src/services/marbleApi.ts` with functions: `prepareUpload(file)`, `uploadImage(uploadUrl, file, requiredHeaders)`, `generateWorld(mediaAssets)`, `pollOperation(operationId)`, `getWorld(worldId)` — API key read internally from `VITE_MARBLE_API_KEY` env var
 - [ ] Each function is a plain `fetch` call returning typed responses
-- [ ] Add error handling: HTTP status checks, timeout on polling (max 3 min, 5s intervals)
-- [ ] `generateWorld` uses `model_name: "Marble 0.1-mini"`
+- [ ] Add error handling: HTTP status checks, timeout on polling (max 5 min, 5s intervals)
+- [ ] `generateWorld` uses `model: "Marble 0.1-mini"`
 
 ### 1.2 — Upload → Generate Flow
 - [ ] Wire the Setup CTA button to: iterate filled azimuth slots → `prepareUpload` each → `PUT` image to signed URL → collect `mediaAssetId`s → call `generateWorld`
@@ -309,9 +309,3 @@
 | Marble rate limit | 6 generations/min — pre-generate worlds for demo day |
 | SPZ resolution | Use 500k for real-time nav; 100k if performance is an issue |
 | Collider mesh | GLB from Marble — loaded invisible, used only for raycast placement |
-
-❯  write a document, that is tight, not overly verbose, but that basically take the following doc: 'c:/Users/Daniel Lopez/Desktop/Hackathons/World Models/CineBlock/._docs/marble-api-info.txt' which  has all the docs for hte marble api for world models, and baiscally make a      
- 
-tight, markdown file document with only the key information, that is easy for the agent to read, for how to use the api, with regard to the specs of our project (like what our application will use, not stuff that we won't hope to touch ever) here is our porjects specs so you    
-know what all we will be needing from the api 'c:/Users/Daniel Lopez/Desktop/Hackathons/World Models/CineBlock/._docs/prd-revised.md' ... also please update the prd-revised so it describes how to use the api correctly, but not in a way that will destroy the functionality, just  
-basically make sure it describes how to use the api correctly, we still need all the funcitonality descrieb correctly. Use the AskUSerQuestion if there are any big changes you are going to need to do to our specs bescause of the api or any other questions or concerns

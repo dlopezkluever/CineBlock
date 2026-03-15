@@ -44,30 +44,27 @@ export interface OperationResponse {
 }
 
 export interface WorldResponse {
-  id: string;
+  world_id: string;
   display_name: string;
   world_marble_url: string;
+  model?: string;
   assets: {
-    caption: string;
-    thumbnail_url: string;
+    caption?: string;
+    thumbnail_url?: string;
     splats: {
-      spz_urls: {
-        '100k': string;
-        '500k': string;
-        full_res: string;
+      spz_urls: Record<string, string>;
+      semantics_metadata?: {
+        ground_plane_offset?: number;
+        metric_scale_factor?: number;
       };
     };
     mesh: {
       collider_mesh_url: string;
     };
-    imagery: {
-      pano_url: string;
+    imagery?: {
+      pano_url?: string;
     };
   };
-}
-
-export interface GetWorldResponse {
-  world: WorldResponse;
 }
 
 // --- API Functions ---
@@ -148,7 +145,7 @@ export async function pollOperation(operationId: string): Promise<OperationRespo
   return res.json();
 }
 
-export async function getWorld(worldId: string): Promise<GetWorldResponse> {
+export async function getWorld(worldId: string): Promise<WorldResponse> {
   const apiKey = getApiKey();
   const res = await fetch(`${BASE_URL}/marble/v1/worlds/${worldId}`, {
     headers: { 'WLT-Api-Key': apiKey },
