@@ -122,11 +122,13 @@ export async function generateWorld(
           azimuth: a.azimuth,
           content: {
             source: 'media_asset',
-            media_asset_id: a.mediaAssetId,
+            media_asset: {
+              media_asset_id: a.mediaAssetId,
+            },
           },
         })),
       },
-      model: 'Marble 0.1-mini',
+      model_name: 'Marble 0.1-mini',
     }),
   });
   if (!res.ok) {

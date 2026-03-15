@@ -130,12 +130,12 @@ describe('Marble API Client', () => {
       const [url, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(url).toBe('https://api.worldlabs.ai/marble/v1/worlds:generate');
       const body = JSON.parse(opts.body);
-      expect(body.model).toBe('Marble 0.1-mini');
+      expect(body.model_name).toBe('Marble 0.1-mini');
       expect(body.world_prompt.type).toBe('multi-image');
       expect(body.world_prompt.multi_image_prompt).toHaveLength(2);
       expect(body.world_prompt.multi_image_prompt[0]).toEqual({
         azimuth: 0,
-        content: { source: 'media_asset', media_asset_id: 'asset-1' },
+        content: { source: 'media_asset', media_asset: { media_asset_id: 'asset-1' } },
       });
     });
   });
