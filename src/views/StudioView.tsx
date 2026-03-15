@@ -139,12 +139,15 @@ export default function StudioView({
       if (activeShot) {
         const visibility: Record<string, boolean> = {};
         state.assets.forEach((a) => {
-          visibility[a.id] = activeShot.assetIds.includes(a.id);
+          const hasPlacement = state.mannequinPlacements.some(
+            (m) => m.assetId === a.id && m.shotId === activeShot.id,
+          );
+          visibility[a.id] = hasPlacement || activeShot.assetIds.includes(a.id);
         });
         dispatch({ type: 'SET_ASSET_VISIBILITY', visibility });
       }
     }
-  }, [state.activeShotIndex, activeShot, state.assets, dispatch]);
+  }, [state.activeShotIndex, activeShot, state.assets, state.mannequinPlacements, dispatch]);
 
   // Mannequin placement
   const handlePlace = useCallback(
