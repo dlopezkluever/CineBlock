@@ -1,8 +1,9 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
 import MarbleWorld from '../components/MarbleWorld';
+import { MannequinScene } from '../components/Mannequins';
 import type * as THREE from 'three';
 
 function TestCube() {
@@ -25,6 +26,9 @@ export default function StudioView({
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   const viewfinderRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [placingAssetId, setPlacingAssetId] = useState<string | null>(null);
+  const prevShotIndexRef = useRef(state.activeShotIndex);
 
   const handleColliderLoaded = useCallback((mesh: THREE.Object3D) => {
     colliderRef.current = mesh;
@@ -38,6 +42,70 @@ export default function StudioView({
   const startCaptures = shotCaptures.filter((c) => c.frameType === 'start');
   const endCaptures = shotCaptures.filter((c) => c.frameType === 'end');
 
+  // Mannequin placements for the active shot
+  const activePlacements = activeShot
+    ? state.mannequinPlacements.filter((m) => m.shotId === activeShot.id)
+    : [];
+
+  // Reset visibility when switching shots — match the shot's assetIds
+  useEffect(() => {
+    if (state.activeShotIndex !== prevShotIndexRef.current) {
+      prevShotIndexRef.current = state.activeShotIndex;
+      setSelectedAssetId(null);
+      setPlacingAssetId(null);
+      if (activeShot) {
+        const visibility: Record<string, boolean> = {};
+        state.assets.forEach((a) => {
+          visibility[a.id] = activeShot.assetIds.includes(a.id);
+        });
+        dispatch({ type: 'SET_ASSET_VISIBILITY', visibility });
+      }
+    }
+  }, [state.activeShotIndex, activeShot, state.assets, dispatch]);
+
+  // Handle mannequin placement
+  const handlePlace = useCallback(
+    (point: [number, number, number]) => {
+      if (!placingAssetId || !activeShot) return;
+      dispatch({
+        type: 'ADD_MANNEQUIN',
+        placement: {
+          assetId: placingAssetId,
+          shotId: activeShot.id,
+          position: point,
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
+      });
+      setPlacingAssetId(null);
+    },
+    [placingAssetId, activeShot, dispatch],
+  );
+
+  const handleCancelPlace = useCallback(() => {
+    setPlacingAssetId(null);
+  }, []);
+
+  const handleTransformEnd = useCallback(
+    (
+      assetId: string,
+      shotId: string,
+      pos: [number, number, number],
+      rot: [number, number, number],
+      scl: [number, number, number],
+    ) => {
+      dispatch({
+        type: 'UPDATE_MANNEQUIN',
+        assetId,
+        shotId,
+        position: pos,
+        rotation: rot,
+        scale: scl,
+      });
+    },
+    [dispatch],
+  );
+
   const handleCapture = useCallback(() => {
     if (!glRef.current || !viewfinderRef.current || !activeShot) return;
 
@@ -45,7 +113,6 @@ export default function StudioView({
     const canvasRect = canvas.getBoundingClientRect();
     const vfRect = viewfinderRef.current.getBoundingClientRect();
 
-    // Map viewfinder screen coords to canvas pixel coords (accounts for DPR)
     const scaleX = canvas.width / canvasRect.width;
     const scaleY = canvas.height / canvasRect.height;
 
@@ -54,7 +121,6 @@ export default function StudioView({
     const cropW = vfRect.width * scaleX;
     const cropH = vfRect.height * scaleY;
 
-    // Read full canvas, then crop to viewfinder
     const fullDataUrl = canvas.toDataURL('image/png');
     const img = new Image();
     img.onload = () => {
@@ -65,7 +131,6 @@ export default function StudioView({
       ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       const croppedDataUrl = offscreen.toDataURL('image/png');
 
-      // First capture per shot+frameType is auto-hero
       const existingForType = state.captures.filter(
         (c) =>
           c.shotId === activeShot.id && c.frameType === state.activeFrameType,
@@ -105,7 +170,14 @@ export default function StudioView({
         >
           &larr; Back to Setup
         </button>
-        <span className="text-sm font-medium text-zinc-300">Studio</span>
+        <span className="text-sm font-medium text-zinc-300">
+          Studio
+          {placingAssetId && (
+            <span className="ml-2 text-amber-400 text-xs">
+              Click to place &middot; Esc to cancel
+            </span>
+          )}
+        </span>
         <button
           onClick={() => onNavigate('results')}
           className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
@@ -124,6 +196,9 @@ export default function StudioView({
             onCreated={({ gl }) => {
               glRef.current = gl;
             }}
+            onPointerMissed={() => {
+              if (!placingAssetId) setSelectedAssetId(null);
+            }}
           >
             <ambientLight intensity={0.5} />
             <directionalLight position={[5, 5, 5]} intensity={1} />
@@ -141,7 +216,20 @@ export default function StudioView({
               </>
             )}
 
-            <OrbitControls />
+            <MannequinScene
+              assets={state.assets}
+              placements={activePlacements}
+              visibility={state.assetVisibility}
+              selectedAssetId={selectedAssetId}
+              onSelect={setSelectedAssetId}
+              onTransformEnd={handleTransformEnd}
+              colliderRef={colliderRef}
+              placingAssetId={placingAssetId}
+              onPlace={handlePlace}
+              onCancelPlace={handleCancelPlace}
+            />
+
+            <OrbitControls makeDefault />
           </Canvas>
 
           {/* Viewfinder overlay — 16:9, centred, dark mask outside */}
@@ -250,7 +338,6 @@ export default function StudioView({
                     {activeShot.action}
                   </p>
                 )}
-                {/* Optional metadata if present */}
                 {(activeShot.cameraHeight ||
                   activeShot.cameraDistance ||
                   activeShot.cameraMovement ||
@@ -276,7 +363,100 @@ export default function StudioView({
             </div>
           )}
 
-          {/* Section 3 — Capture tray */}
+          {/* Section 3 — Asset Visibility & Mannequin Controls */}
+          {activeShot && state.assets.length > 0 && (
+            <div className="p-4 border-b border-zinc-700/50">
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                Assets
+              </h3>
+              <div className="space-y-1.5">
+                {state.assets.map((asset) => {
+                  const isVisible = state.assetVisibility[asset.id] !== false;
+                  const hasPlacement = activePlacements.some(
+                    (m) => m.assetId === asset.id,
+                  );
+                  const isPlacing = placingAssetId === asset.id;
+                  const isSelected = selectedAssetId === asset.id;
+
+                  return (
+                    <div
+                      key={asset.id}
+                      className={`flex items-center gap-2 p-1.5 rounded text-xs ${
+                        isSelected
+                          ? 'bg-zinc-700/50 border border-zinc-600'
+                          : 'border border-transparent'
+                      }`}
+                    >
+                      {/* Color dot */}
+                      <span
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: asset.color }}
+                      />
+                      {/* Name */}
+                      <span
+                        className={`flex-1 truncate ${
+                          isVisible ? 'text-zinc-300' : 'text-zinc-600'
+                        }`}
+                      >
+                        {asset.name || 'Unnamed'}
+                      </span>
+                      {/* Visibility toggle */}
+                      <button
+                        onClick={() =>
+                          dispatch({
+                            type: 'TOGGLE_ASSET_VISIBILITY',
+                            assetId: asset.id,
+                          })
+                        }
+                        className={`text-[11px] w-5 h-5 flex items-center justify-center rounded transition-colors ${
+                          isVisible
+                            ? 'text-zinc-300 hover:text-white'
+                            : 'text-zinc-600 hover:text-zinc-400'
+                        }`}
+                        title={isVisible ? 'Hide' : 'Show'}
+                      >
+                        {isVisible ? '\u{1F441}' : '\u2013'}
+                      </button>
+                      {/* Place / Remove */}
+                      {hasPlacement ? (
+                        <button
+                          onClick={() => {
+                            dispatch({
+                              type: 'REMOVE_MANNEQUIN',
+                              assetId: asset.id,
+                              shotId: activeShot.id,
+                            });
+                            if (selectedAssetId === asset.id)
+                              setSelectedAssetId(null);
+                          }}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 hover:bg-red-900/50 transition-colors"
+                          title="Remove from scene"
+                        >
+                          Remove
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            setPlacingAssetId(isPlacing ? null : asset.id)
+                          }
+                          className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                            isPlacing
+                              ? 'bg-amber-600/30 text-amber-300 border border-amber-500/30'
+                              : 'bg-zinc-700/50 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                          }`}
+                          title="Place in scene"
+                        >
+                          {isPlacing ? 'Placing...' : 'Place'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Section 4 — Capture tray */}
           <div className="p-4 flex-1 overflow-y-auto">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
               Captures

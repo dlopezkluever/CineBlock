@@ -18,6 +18,10 @@ export type Action =
   | { type: 'SET_ACTIVE_SHOT'; index: number }
   | { type: 'SET_FRAME_TYPE'; frameType: 'start' | 'end' }
   | { type: 'TOGGLE_ASSET_VISIBILITY'; assetId: string }
+  | { type: 'SET_ASSET_VISIBILITY'; visibility: Record<string, boolean> }
+  | { type: 'ADD_MANNEQUIN'; placement: CineBlockState['mannequinPlacements'][number] }
+  | { type: 'UPDATE_MANNEQUIN'; assetId: string; shotId: string; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number] }
+  | { type: 'REMOVE_MANNEQUIN'; assetId: string; shotId: string }
   | { type: 'ADD_CAPTURE'; capture: CineBlockState['captures'][number] }
   | { type: 'TOGGLE_HERO'; captureId: string }
   | { type: 'RESET' };
@@ -159,8 +163,40 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         ...state,
         assetVisibility: {
           ...state.assetVisibility,
-          [action.assetId]: !state.assetVisibility[action.assetId],
+          [action.assetId]: !(state.assetVisibility[action.assetId] ?? true),
         },
+      };
+
+    case 'SET_ASSET_VISIBILITY':
+      return { ...state, assetVisibility: action.visibility };
+
+    case 'ADD_MANNEQUIN':
+      return {
+        ...state,
+        mannequinPlacements: [...state.mannequinPlacements, action.placement],
+      };
+
+    case 'UPDATE_MANNEQUIN':
+      return {
+        ...state,
+        mannequinPlacements: state.mannequinPlacements.map((m) =>
+          m.assetId === action.assetId && m.shotId === action.shotId
+            ? {
+                ...m,
+                ...(action.position && { position: action.position }),
+                ...(action.rotation && { rotation: action.rotation }),
+                ...(action.scale && { scale: action.scale }),
+              }
+            : m
+        ),
+      };
+
+    case 'REMOVE_MANNEQUIN':
+      return {
+        ...state,
+        mannequinPlacements: state.mannequinPlacements.filter(
+          (m) => !(m.assetId === action.assetId && m.shotId === action.shotId)
+        ),
       };
 
     case 'ADD_CAPTURE':
