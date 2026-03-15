@@ -903,7 +903,42 @@ export default function StudioView({
             </div>
           )}
 
-          {/* Section 4 — Capture tray */}
+          {/* Section 4 — Aspect Ratio */}
+          <div className="p-4 border-b border-zinc-700/50">
+            <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+              Aspect Ratio
+            </h3>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(Object.keys(ASPECT_RATIOS) as AspectRatioKey[]).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => dispatch({ type: 'SET_ASPECT_RATIO', aspectRatio: r })}
+                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs font-mono transition-colors ${
+                    state.aspectRatio === r
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'
+                  }`}
+                >
+                  <div
+                    className={`rounded-sm flex-shrink-0 ${
+                      state.aspectRatio === r
+                        ? 'bg-white/30'
+                        : 'bg-zinc-600/40'
+                    }`}
+                    style={{
+                      aspectRatio: `${ASPECT_RATIOS[r]}`,
+                      ...(ASPECT_RATIOS[r] >= 1
+                        ? { width: '18px' }
+                        : { height: '18px' }),
+                    }}
+                  />
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 5 — Capture tray */}
           <div className="p-4 flex-1 overflow-y-auto">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
               Captures
