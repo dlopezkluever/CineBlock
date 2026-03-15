@@ -91,7 +91,16 @@ export default function StudioView({
       {/* ── Top toolbar ── */}
       <div className="flex items-center justify-between px-4 py-2 bg-zinc-800 border-b border-zinc-700">
         <button
-          onClick={() => onNavigate('setup')}
+          onClick={() => {
+            if (
+              state.captures.length > 0 &&
+              !window.confirm(
+                'Go back to Setup? You\'ll lose your captures.',
+              )
+            )
+              return;
+            onNavigate('setup');
+          }}
           className="text-sm text-zinc-400 hover:text-white transition-colors"
         >
           &larr; Back to Setup
