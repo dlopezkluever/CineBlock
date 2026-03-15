@@ -6,15 +6,10 @@ import MarbleWorld from '../components/MarbleWorld';
 import { MannequinScene, MannequinOverlay } from '../components/Mannequins';
 import type * as THREE from 'three';
 
-// --- Constants ---
+import type { AspectRatioKey } from '../types';
+import { ASPECT_RATIOS } from '../types';
 
-type AspectRatioKey = '16:9' | '2.39:1' | '4:3' | '9:16';
-const ASPECT_RATIOS: Record<AspectRatioKey, number> = {
-  '16:9': 16 / 9,
-  '2.39:1': 2.39,
-  '4:3': 4 / 3,
-  '9:16': 9 / 16,
-};
+// --- Constants ---
 
 type LensKey = '35mm' | '50mm' | '85mm';
 const LENSES: Record<LensKey, { focal: string; aperture: string }> = {
@@ -89,7 +84,6 @@ export default function StudioView({
   const [placingAssetId, setPlacingAssetId] = useState<string | null>(null);
 
   // Phase 6 UI state
-  const [aspectRatio, setAspectRatio] = useState<AspectRatioKey>('16:9');
   const [showGrid, setShowGrid] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedLens, setSelectedLens] = useState<LensKey>('35mm');
@@ -98,7 +92,7 @@ export default function StudioView({
   const [captureFlash, setCaptureFlash] = useState(false);
 
   // Derived values
-  const aspectRatioValue = ASPECT_RATIOS[aspectRatio];
+  const aspectRatioValue = ASPECT_RATIOS[state.aspectRatio];
   const lensInfo = LENSES[selectedLens];
   const hasWorld = state.worldStatus === 'ready' && state.spzUrl;
   const activeShot = state.shots[state.activeShotIndex] ?? null;
@@ -490,7 +484,7 @@ export default function StudioView({
               <div className="absolute bottom-2.5 left-3 flex items-center gap-3 text-[10px] font-mono text-white/40 tracking-wider">
                 <span>{lensInfo.focal}</span>
                 <span>{lensInfo.aperture}</span>
-                <span>{aspectRatio}</span>
+                <span>{state.aspectRatio}</span>
               </div>
 
               {/* Frame type indicator — bottom right */}
@@ -626,9 +620,9 @@ export default function StudioView({
                         (r) => (
                           <button
                             key={r}
-                            onClick={() => setAspectRatio(r)}
+                            onClick={() => dispatch({ type: 'SET_ASPECT_RATIO', aspectRatio: r })}
                             className={`px-2.5 py-1.5 rounded text-xs font-mono transition-colors ${
-                              aspectRatio === r
+                              state.aspectRatio === r
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'
                             }`}
