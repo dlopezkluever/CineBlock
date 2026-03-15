@@ -1,3 +1,13 @@
+// --- Aspect Ratio ---
+
+export type AspectRatioKey = '16:9' | '2.39:1' | '4:3' | '9:16';
+export const ASPECT_RATIOS: Record<AspectRatioKey, number> = {
+  '16:9': 16 / 9,
+  '2.39:1': 2.39,
+  '4:3': 4 / 3,
+  '9:16': 9 / 16,
+};
+
 export interface CineBlockState {
   currentView: 'setup' | 'studio' | 'results';
 
@@ -5,6 +15,7 @@ export interface CineBlockState {
   locationImages: AzimuthSlot[];
   assets: CineBlockAsset[];
   shots: CineBlockShot[];
+  aspectRatio: AspectRatioKey;
 
   // Marble world
   worldId: string | null;
