@@ -51,7 +51,7 @@ describe('Marble API Client', () => {
     it('sends correct request and returns parsed response', async () => {
       const mockResponse = {
         media_asset: {
-          id: 'asset-uuid-1',
+          media_asset_id: 'asset-uuid-1',
           file_name: 'photo.jpg',
           kind: 'image',
           extension: 'jpg',
@@ -67,7 +67,7 @@ describe('Marble API Client', () => {
 
       const result = await prepareUpload(makeFile('photo.jpg'));
 
-      expect(result.media_asset.id).toBe('asset-uuid-1');
+      expect(result.media_asset.media_asset_id).toBe('asset-uuid-1');
       expect(result.upload_info.upload_url).toBe('https://storage.example.com/signed-url');
 
       // Verify fetch was called with correct URL and headers
@@ -130,12 +130,12 @@ describe('Marble API Client', () => {
       const [url, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(url).toBe('https://api.worldlabs.ai/marble/v1/worlds:generate');
       const body = JSON.parse(opts.body);
-      expect(body.model_name).toBe('Marble 0.1-mini');
+      expect(body.model).toBe('Marble 0.1-mini');
       expect(body.world_prompt.type).toBe('multi-image');
       expect(body.world_prompt.multi_image_prompt).toHaveLength(2);
       expect(body.world_prompt.multi_image_prompt[0]).toEqual({
         azimuth: 0,
-        content: { source: 'media_asset', media_asset: { media_asset_id: 'asset-1' } },
+        content: { source: 'media_asset', media_asset_id: 'asset-1' },
       });
     });
   });
@@ -188,7 +188,7 @@ describe('Marble API Client', () => {
   describe('uploadAndGenerate (orchestrator)', () => {
     it('orchestrates full flow: upload → generate → poll → return world', { timeout: 15000 }, async () => {
       const prepareResp = {
-        media_asset: { id: 'asset-1', file_name: 'img.jpg', kind: 'image', extension: 'jpg' },
+        media_asset: { media_asset_id: 'asset-1', file_name: 'img.jpg', kind: 'image', extension: 'jpg' },
         upload_info: {
           upload_url: 'https://storage.example.com/upload',
           upload_method: 'PUT',
@@ -267,7 +267,7 @@ describe('Marble API Client', () => {
 
     it('throws when generation fails with error', { timeout: 15000 }, async () => {
       const prepareResp = {
-        media_asset: { id: 'asset-1', file_name: 'img.jpg', kind: 'image', extension: 'jpg' },
+        media_asset: { media_asset_id: 'asset-1', file_name: 'img.jpg', kind: 'image', extension: 'jpg' },
         upload_info: { upload_url: 'https://example.com/upload', upload_method: 'PUT', required_headers: {} },
       };
       const generateResp = { operation_id: 'op-1', done: false, error: null, metadata: null, response: null };

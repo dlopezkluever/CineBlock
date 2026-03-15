@@ -17,7 +17,7 @@ function headers(apiKey: string): HeadersInit {
 
 export interface PrepareUploadResponse {
   media_asset: {
-    id: string;
+    media_asset_id: string;
     file_name: string;
     kind: string;
     extension: string;
@@ -122,13 +122,11 @@ export async function generateWorld(
           azimuth: a.azimuth,
           content: {
             source: 'media_asset',
-            media_asset: {
-              media_asset_id: a.mediaAssetId,
-            },
+            media_asset_id: a.mediaAssetId,
           },
         })),
       },
-      model_name: 'Marble 0.1-mini',
+      model: 'Marble 0.1-mini',
     }),
   });
   if (!res.ok) {
@@ -191,7 +189,7 @@ export async function uploadAndGenerate(
       prepared.upload_info.required_headers,
     );
     mediaAssets.push({
-      mediaAssetId: prepared.media_asset.id,
+      mediaAssetId: prepared.media_asset.media_asset_id,
       azimuth: slot.azimuth,
     });
   }
