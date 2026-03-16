@@ -3,6 +3,8 @@ import { useThree, useFrame, createPortal } from '@react-three/fiber';
 import { Html, TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { MannequinPlacement, CineBlockAsset } from '../types';
+import { DEFAULT_BODY_PARAMS } from '../types';
+import { ArticulatedMannequin } from './ArticulatedMannequin';
 
 // --- Character Mannequin: capsule body + sphere head ---
 
@@ -17,6 +19,8 @@ interface CharacterMannequinProps {
 
 export function CharacterMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef }: CharacterMannequinProps) {
   const groupRef = useRef<THREE.Group>(null!);
+  const bp = placement.bodyParams ?? DEFAULT_BODY_PARAMS;
+  const labelY = bp.height + 0.15;
 
   useEffect(() => {
     console.log('[CineBlock] CharacterMannequin mounted:', asset.name, 'at', placement.position);
@@ -34,18 +38,13 @@ export function CharacterMannequin({ asset, placement, isSelected, onSelect, onT
           onSelect();
         }}
       >
-        {/* Body — capsule */}
-        <mesh position={[0, 0.65, 0]} renderOrder={999}>
-          <capsuleGeometry args={[0.2, 0.7, 8, 16]} />
-          <meshStandardMaterial color={asset.color} depthTest={false} transparent opacity={0.85} />
-        </mesh>
-        {/* Head — sphere */}
-        <mesh position={[0, 1.3, 0]} renderOrder={999}>
-          <sphereGeometry args={[0.18, 16, 16]} />
-          <meshStandardMaterial color={asset.color} depthTest={false} transparent opacity={0.85} />
-        </mesh>
+        <ArticulatedMannequin
+          color={asset.color}
+          pose={placement.pose}
+          bodyParams={placement.bodyParams}
+        />
         {/* Name label */}
-        <Html position={[0, 1.7, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
+        <Html position={[0, labelY, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
           <div
             className="px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap"
             style={{ backgroundColor: asset.color + 'CC', color: '#fff' }}
