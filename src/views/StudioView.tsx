@@ -7,7 +7,8 @@ import { MannequinScene, MannequinOverlay } from '../components/Mannequins';
 import type * as THREE from 'three';
 
 import type { AspectRatioKey } from '../types';
-import { ASPECT_RATIOS } from '../types';
+import { ASPECT_RATIOS, DEFAULT_BODY_PARAMS, DEFAULT_POSE } from '../types';
+import { clampToSurface } from '../utils/surfaceClamp';
 
 // --- Constants ---
 
@@ -90,6 +91,7 @@ export default function StudioView({
   const [showSettings, setShowSettings] = useState(false);
   const [splatLoaded, setSplatLoaded] = useState(false);
   const [captureFlash, setCaptureFlash] = useState(false);
+  const [showControls, setShowControls] = useState(false);
 
   // Derived values
   const aspectRatioValue = ASPECT_RATIOS[state.aspectRatio];
@@ -174,17 +176,25 @@ export default function StudioView({
       rot: [number, number, number],
       scl: [number, number, number],
     ) => {
+      // Surface clamp for character assets
+      const asset = state.assets.find((a) => a.id === assetId);
+      let finalPos = pos;
+      if (asset?.type === 'character') {
+        const clamped = clampToSurface(pos, colliderRef);
+        if (clamped) finalPos = clamped;
+      }
       dispatch({
         type: 'UPDATE_MANNEQUIN',
         assetId,
         shotId,
-        position: pos,
+        position: finalPos,
         rotation: rot,
         scale: scl,
       });
     },
-    [dispatch],
+    [dispatch, state.assets, colliderRef],
   );
+
 
   // Capture pipeline
   const handleCapture = useCallback(() => {
@@ -279,6 +289,8 @@ export default function StudioView({
         case 'Escape':
           if (lightboxUrl) {
             setLightboxUrl(null);
+          } else if (showControls) {
+            setShowControls(false);
           } else if (showSettings) {
             setShowSettings(false);
           } else if (placingAssetId) {
@@ -291,7 +303,7 @@ export default function StudioView({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleCapture, lightboxUrl, showSettings, placingAssetId, dispatch]);
+  }, [handleCapture, lightboxUrl, showControls, showSettings, placingAssetId, dispatch]);
 
   // --- Render ---
 
@@ -903,6 +915,180 @@ export default function StudioView({
             </div>
           )}
 
+          {/* Section 3b — Mannequin Controls (when a character is selected) */}
+          {activeShot && selectedAssetId && (() => {
+            const selectedAsset = state.assets.find((a) => a.id === selectedAssetId);
+            if (!selectedAsset || selectedAsset.type !== 'character') return null;
+            const placement = activePlacements.find((m) => m.assetId === selectedAssetId);
+            if (!placement) return null;
+            const bp = placement.bodyParams ?? DEFAULT_BODY_PARAMS;
+            const pose = placement.pose ?? DEFAULT_POSE;
+
+            const poseSlider = (
+              label: string,
+              value: number,
+              min: number,
+              max: number,
+              onChange: (v: number) => void,
+            ) => (
+              <div>
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-[10px] text-zinc-500">{label}</label>
+                  <span className="text-[10px] font-mono text-zinc-600">{(value * 180 / Math.PI).toFixed(0)}&deg;</span>
+                </div>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step="0.01"
+                  value={value}
+                  onChange={(e) => onChange(parseFloat(e.target.value))}
+                  className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
+            );
+
+            const updatePoseField = (field: string, value: number | [number, number, number]) => {
+              dispatch({
+                type: 'UPDATE_MANNEQUIN_POSE',
+                assetId: selectedAssetId,
+                shotId: activeShot.id,
+                pose: { ...pose, [field]: value },
+              });
+            };
+
+            const updateShoulderAxis = (side: 'left' | 'right', axis: 0 | 1 | 2, value: number) => {
+              const field = side === 'left' ? 'leftShoulder' : 'rightShoulder';
+              const current = side === 'left' ? [...pose.leftShoulder] as [number, number, number] : [...pose.rightShoulder] as [number, number, number];
+              current[axis] = value;
+              updatePoseField(field, current);
+            };
+
+            const updateHipAxis = (side: 'left' | 'right', axis: 0 | 1 | 2, value: number) => {
+              const field = side === 'left' ? 'leftHip' : 'rightHip';
+              const current = side === 'left' ? [...pose.leftHip] as [number, number, number] : [...pose.rightHip] as [number, number, number];
+              current[axis] = value;
+              updatePoseField(field, current);
+            };
+
+            return (
+              <div className="p-4 border-b border-zinc-700/50 overflow-y-auto max-h-[50vh]">
+                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                  Mannequin
+                </h3>
+
+                {/* Build */}
+                <div className="space-y-2 mb-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-zinc-400">Height</label>
+                      <span className="text-[10px] font-mono text-zinc-500">{bp.height.toFixed(2)}m</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.5"
+                      step="0.01"
+                      value={bp.height}
+                      onChange={(e) => {
+                        const height = parseFloat(e.target.value);
+                        dispatch({
+                          type: 'UPDATE_MANNEQUIN_BODY',
+                          assetId: selectedAssetId,
+                          shotId: activeShot.id,
+                          bodyParams: { height },
+                        });
+                        const clamped = clampToSurface(placement.position, colliderRef);
+                        if (clamped) {
+                          dispatch({
+                            type: 'UPDATE_MANNEQUIN',
+                            assetId: selectedAssetId,
+                            shotId: activeShot.id,
+                            position: clamped,
+                          });
+                        }
+                      }}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-zinc-400">Build</label>
+                      <span className="text-[10px] font-mono text-zinc-500">{bp.build.toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.01"
+                      value={bp.build}
+                      onChange={(e) => {
+                        const build = parseFloat(e.target.value);
+                        dispatch({
+                          type: 'UPDATE_MANNEQUIN_BODY',
+                          assetId: selectedAssetId,
+                          shotId: activeShot.id,
+                          bodyParams: { build },
+                        });
+                      }}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Pose — divider */}
+                <div className="border-t border-zinc-700/50 pt-3 mb-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Pose</span>
+                    <button
+                      onClick={() => {
+                        dispatch({
+                          type: 'UPDATE_MANNEQUIN_POSE',
+                          assetId: selectedAssetId,
+                          shotId: activeShot.id,
+                          pose: DEFAULT_POSE,
+                        });
+                      }}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+
+                {/* Arms */}
+                <div className="space-y-1.5 mb-3">
+                  <span className="text-[10px] font-medium text-zinc-400 block">Left Arm</span>
+                  {poseSlider('Raise / Lower', pose.leftShoulder[0], -Math.PI, Math.PI, (v) => updateShoulderAxis('left', 0, v))}
+                  {poseSlider('Forward / Back', pose.leftShoulder[2], -Math.PI, Math.PI, (v) => updateShoulderAxis('left', 2, v))}
+                  {poseSlider('Elbow Bend', pose.leftElbow, 0, 2.6, (v) => updatePoseField('leftElbow', v))}
+                </div>
+
+                <div className="space-y-1.5 mb-3">
+                  <span className="text-[10px] font-medium text-zinc-400 block">Right Arm</span>
+                  {poseSlider('Raise / Lower', pose.rightShoulder[0], -Math.PI, Math.PI, (v) => updateShoulderAxis('right', 0, v))}
+                  {poseSlider('Forward / Back', pose.rightShoulder[2], -Math.PI, Math.PI, (v) => updateShoulderAxis('right', 2, v))}
+                  {poseSlider('Elbow Bend', pose.rightElbow, 0, 2.6, (v) => updatePoseField('rightElbow', v))}
+                </div>
+
+                {/* Legs */}
+                <div className="space-y-1.5 mb-3">
+                  <span className="text-[10px] font-medium text-zinc-400 block">Left Leg</span>
+                  {poseSlider('Raise / Lower', pose.leftHip[0], -Math.PI / 2, Math.PI / 2, (v) => updateHipAxis('left', 0, v))}
+                  {poseSlider('Spread', pose.leftHip[2], -Math.PI / 4, Math.PI / 4, (v) => updateHipAxis('left', 2, v))}
+                  {poseSlider('Knee Bend', pose.leftKnee, 0, 2.6, (v) => updatePoseField('leftKnee', v))}
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-medium text-zinc-400 block">Right Leg</span>
+                  {poseSlider('Raise / Lower', pose.rightHip[0], -Math.PI / 2, Math.PI / 2, (v) => updateHipAxis('right', 0, v))}
+                  {poseSlider('Spread', pose.rightHip[2], -Math.PI / 4, Math.PI / 4, (v) => updateHipAxis('right', 2, v))}
+                  {poseSlider('Knee Bend', pose.rightKnee, 0, 2.6, (v) => updatePoseField('rightKnee', v))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Section 4 — Aspect Ratio */}
           <div className="p-4 border-b border-zinc-700/50">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
@@ -1038,6 +1224,104 @@ export default function StudioView({
           </div>
         </div>
       </div>
+
+      {/* ════════ Controls help ════════ */}
+      <button
+        onClick={() => setShowControls((c) => !c)}
+        className="fixed bottom-5 right-5 z-40 w-9 h-9 rounded-full bg-zinc-800/90 backdrop-blur-sm border border-zinc-700/60 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors shadow-lg"
+        title="Show controls"
+      >
+        <span className="text-sm font-bold select-none">?</span>
+      </button>
+
+      {showControls && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center"
+          onClick={() => setShowControls(false)}
+          role="dialog"
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 shadow-2xl max-w-md w-full mx-4 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-sm font-semibold text-white">Studio Controls</h2>
+              <button
+                onClick={() => setShowControls(false)}
+                className="w-6 h-6 rounded-full flex items-center justify-center text-zinc-500 hover:text-white hover:bg-zinc-700 transition-colors text-sm"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Keyboard Shortcuts */}
+            <div className="mb-5">
+              <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                Keyboard
+              </h3>
+              <div className="space-y-1.5 text-xs">
+                {[
+                  ['Space', 'Capture screenshot'],
+                  ['1', 'Switch to Start Frame'],
+                  ['2', 'Switch to End Frame'],
+                  ['G', 'Move selected asset'],
+                  ['R', 'Rotate selected asset'],
+                  ['S', 'Scale selected asset'],
+                  ['Esc', 'Cancel / Close / Deselect'],
+                ].map(([key, desc]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-zinc-400">{desc}</span>
+                    <kbd className="text-zinc-300 bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded text-[11px] font-mono min-w-[2rem] text-center">
+                      {key}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Mouse Controls */}
+            <div className="mb-5">
+              <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                Mouse
+              </h3>
+              <div className="space-y-1.5 text-xs">
+                {[
+                  ['Left Drag', 'Orbit camera'],
+                  ['Right Drag', 'Pan camera'],
+                  ['Scroll', 'Zoom in / out'],
+                  ['Click asset', 'Select asset'],
+                  ['Click empty', 'Deselect asset'],
+                  ['Drag gizmo', 'Transform selected asset'],
+                ].map(([action, desc]) => (
+                  <div key={action} className="flex items-center justify-between">
+                    <span className="text-zinc-400">{desc}</span>
+                    <span className="text-zinc-300 bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded text-[11px] font-mono">
+                      {action}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* UI Controls */}
+            <div>
+              <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                Toolbar & Sidebar
+              </h3>
+              <ul className="space-y-1.5 text-xs text-zinc-400">
+                <li><span className="text-zinc-300">Start / End</span> &mdash; toggle frame type for capture</li>
+                <li><span className="text-zinc-300">Capture</span> &mdash; screenshot the viewfinder</li>
+                <li><span className="text-zinc-300">Reset Camera</span> &mdash; return to default view</li>
+                <li><span className="text-zinc-300">Settings gear</span> &mdash; aspect ratio & grid toggle</li>
+                <li><span className="text-zinc-300">Sidebar shots</span> &mdash; switch active shot</li>
+                <li><span className="text-zinc-300">Place / Remove</span> &mdash; add or remove assets in scene</li>
+                <li><span className="text-zinc-300">Eye icon</span> &mdash; show / hide individual assets</li>
+                <li><span className="text-zinc-300">Capture thumbnails</span> &mdash; click to preview</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ════════ Lightbox modal ════════ */}
       {lightboxUrl && (
