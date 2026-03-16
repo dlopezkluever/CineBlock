@@ -60,12 +60,48 @@ export interface CineBlockShot {
   cameraMovement?: string;
 }
 
+// --- Mannequin Pose & Body ---
+
+export interface MannequinPose {
+  leftShoulder: [number, number, number];
+  leftElbow: number;
+  rightShoulder: [number, number, number];
+  rightElbow: number;
+  leftHip: [number, number, number];
+  leftKnee: number;
+  rightHip: [number, number, number];
+  rightKnee: number;
+}
+
+export interface MannequinBodyParams {
+  height: number;
+  build: number;
+}
+
+export const DEFAULT_POSE: MannequinPose = {
+  leftShoulder: [0, 0, -0.2],
+  leftElbow: 0.3,
+  rightShoulder: [0, 0, 0.2],
+  rightElbow: 0.3,
+  leftHip: [0, 0, 0],
+  leftKnee: 0,
+  rightHip: [0, 0, 0],
+  rightKnee: 0,
+};
+
+export const DEFAULT_BODY_PARAMS: MannequinBodyParams = {
+  height: 1.7,
+  build: 1.0,
+};
+
 export interface MannequinPlacement {
   assetId: string;
   position: [number, number, number];
   rotation: [number, number, number];
   scale: [number, number, number];
   shotId: string;
+  pose?: MannequinPose;
+  bodyParams?: MannequinBodyParams;
 }
 
 export interface CaptureEntry {
