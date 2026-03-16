@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { CineBlockState, AzimuthSlot, AspectRatioKey } from './types';
+import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams } from './types';
 
 // --- Actions ---
 
@@ -21,6 +21,8 @@ export type Action =
   | { type: 'SET_ASSET_VISIBILITY'; visibility: Record<string, boolean> }
   | { type: 'ADD_MANNEQUIN'; placement: CineBlockState['mannequinPlacements'][number] }
   | { type: 'UPDATE_MANNEQUIN'; assetId: string; shotId: string; position?: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number] }
+  | { type: 'UPDATE_MANNEQUIN_POSE'; assetId: string; shotId: string; pose: MannequinPose }
+  | { type: 'UPDATE_MANNEQUIN_BODY'; assetId: string; shotId: string; bodyParams: Partial<MannequinBodyParams> }
   | { type: 'REMOVE_MANNEQUIN'; assetId: string; shotId: string }
   | { type: 'ADD_CAPTURE'; capture: CineBlockState['captures'][number] }
   | { type: 'TOGGLE_HERO'; captureId: string }
@@ -189,6 +191,26 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
                 ...(action.rotation && { rotation: action.rotation }),
                 ...(action.scale && { scale: action.scale }),
               }
+            : m
+        ),
+      };
+
+    case 'UPDATE_MANNEQUIN_POSE':
+      return {
+        ...state,
+        mannequinPlacements: state.mannequinPlacements.map((m) =>
+          m.assetId === action.assetId && m.shotId === action.shotId
+            ? { ...m, pose: action.pose }
+            : m
+        ),
+      };
+
+    case 'UPDATE_MANNEQUIN_BODY':
+      return {
+        ...state,
+        mannequinPlacements: state.mannequinPlacements.map((m) =>
+          m.assetId === action.assetId && m.shotId === action.shotId
+            ? { ...m, bodyParams: { ...(m.bodyParams ?? { height: 1.7, build: 1.0 }), ...action.bodyParams } }
             : m
         ),
       };
