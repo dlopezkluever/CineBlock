@@ -350,8 +350,21 @@ export default function StudioView({
           )}
         </div>
 
-        {/* Right — Done + Close */}
+        {/* Right — Marble + Done + Close */}
         <div className="flex items-center gap-3">
+          {state.worldMarbleUrl && (
+            <a
+              href={state.worldMarbleUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition-colors font-medium"
+            >
+              Open in Marble
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
+          )}
           <button
             onClick={() => onNavigate('results')}
             className="text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium"
