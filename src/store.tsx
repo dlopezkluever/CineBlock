@@ -1,11 +1,11 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings } from './types';
+import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings, ImageDimensions } from './types';
 
 // --- Actions ---
 
 export type Action =
   | { type: 'NAVIGATE'; view: CineBlockState['currentView'] }
-  | { type: 'SET_AZIMUTH_SLOT'; azimuth: AzimuthSlot['azimuth']; file: File; previewUrl: string }
+  | { type: 'SET_AZIMUTH_SLOT'; azimuth: AzimuthSlot['azimuth']; file: File; previewUrl: string; dimensions?: ImageDimensions }
   | { type: 'CLEAR_AZIMUTH_SLOT'; azimuth: AzimuthSlot['azimuth'] }
   | { type: 'ADD_ASSET'; id: string; name: string; assetType: 'character' | 'prop'; description: string; color: string }
   | { type: 'REMOVE_ASSET'; id: string }
@@ -28,7 +28,7 @@ export type Action =
   | { type: 'TOGGLE_HERO'; captureId: string }
   | { type: 'SET_ASPECT_RATIO'; aspectRatio: AspectRatioKey }
   | { type: 'SET_INPUT_MODE'; mode: InputMode }
-  | { type: 'ADD_FREE_IMAGE'; id: string; file: File; previewUrl: string }
+  | { type: 'ADD_FREE_IMAGE'; id: string; file: File; previewUrl: string; dimensions?: ImageDimensions }
   | { type: 'REMOVE_FREE_IMAGE'; id: string }
   | { type: 'SET_SCENE_DESCRIPTION'; description: string }
   | { type: 'SET_GENERATION_SETTINGS'; settings: Partial<GenerationSettings> }
@@ -77,7 +77,7 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         ...state,
         locationImages: state.locationImages.map((slot) =>
           slot.azimuth === action.azimuth
-            ? { ...slot, file: action.file, previewUrl: action.previewUrl }
+            ? { ...slot, file: action.file, previewUrl: action.previewUrl, dimensions: action.dimensions }
             : slot
         ),
       };
@@ -87,7 +87,7 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         ...state,
         locationImages: state.locationImages.map((slot) =>
           slot.azimuth === action.azimuth
-            ? { ...slot, file: null, previewUrl: null, mediaAssetId: null }
+            ? { ...slot, file: null, previewUrl: null, mediaAssetId: null, dimensions: undefined }
             : slot
         ),
       };
@@ -259,7 +259,7 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
       if (state.freeImages.length >= 8) return state;
       return {
         ...state,
-        freeImages: [...state.freeImages, { id: action.id, file: action.file, previewUrl: action.previewUrl }],
+        freeImages: [...state.freeImages, { id: action.id, file: action.file, previewUrl: action.previewUrl, dimensions: action.dimensions }],
       };
 
     case 'REMOVE_FREE_IMAGE':
