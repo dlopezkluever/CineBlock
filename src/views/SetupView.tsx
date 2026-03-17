@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
 import { uploadAndGenerate, generateFromText } from '../services/marbleApi';
-import type { AzimuthSlot, CineBlockShot, AspectRatioKey, InputMode } from '../types';
+import type { AzimuthSlot, CineBlockShot, AspectRatioKey, InputMode, ImageDimensions } from '../types';
 import { ASPECT_RATIOS } from '../types';
 
 const ASSET_COLORS = ['#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444', '#F59E0B', '#EC4899', '#06B6D4'];
@@ -17,17 +17,94 @@ const SLOT_HINTS: Record<number, string> = {
   270: 'Other side / window wall',
 };
 
+const MODE_TIPS: Record<InputMode, string> = {
+  guided: 'Capture your room from the center, looking in each direction. Include overlapping elements between adjacent views for better spatial coherence.',
+  free: 'Upload 2\u20138 photos from around the same space. More overlap = better reconstruction. Keep the same resolution and lighting.',
+  text: 'Be specific: describe the room type, dimensions, key furniture, wall/floor materials, lighting, and mood.',
+};
+
+const MODEL_INFO: Record<string, { cost: string; time: string; quality: string; note: string }> = {
+  'Marble 0.1-mini': { cost: '~$0.15', time: '30\u201345s', quality: 'Draft quality', note: 'Great for iteration' },
+  'Marble 0.1-plus': { cost: '~$1.50', time: '5\u201310 min', quality: 'Production quality', note: 'Sharper, more faithful' },
+};
+
+// ─── Image Dimension Utilities ──────────────────────────────────────────────
+
+function getImageDimensions(file: File): Promise<ImageDimensions> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image'));
+    };
+    img.src = url;
+  });
+}
+
+type ValidationStatus = 'good' | 'warning' | 'error';
+
+interface ImageValidation {
+  status: ValidationStatus;
+  message?: string;
+}
+
+function validateImages(allDimensions: (ImageDimensions | undefined)[]): ImageValidation[] {
+  const defined = allDimensions.filter((d): d is ImageDimensions => d !== undefined);
+  if (defined.length === 0) return allDimensions.map(() => ({ status: 'good' }));
+
+  const reference = defined[0];
+  const refAspect = reference.width / reference.height;
+
+  return allDimensions.map((dims) => {
+    if (!dims) return { status: 'good' as const };
+
+    const shortSide = Math.min(dims.width, dims.height);
+    if (shortSide < 512) {
+      return { status: 'error' as const, message: `Short side is ${shortSide}px (min 512px recommended)` };
+    }
+
+    const aspect = dims.width / dims.height;
+    const aspectDiff = Math.abs(aspect - refAspect) / refAspect;
+    if (aspectDiff > 0.02) {
+      return { status: 'warning' as const, message: `Aspect ratio differs from first image (${dims.width}\u00d7${dims.height} vs ${reference.width}\u00d7${reference.height})` };
+    }
+
+    if (dims.width !== reference.width || dims.height !== reference.height) {
+      return { status: 'warning' as const, message: `Resolution differs from first image (${dims.width}\u00d7${dims.height} vs ${reference.width}\u00d7${reference.height})` };
+    }
+
+    return { status: 'good' as const };
+  });
+}
+
+const VALIDATION_BADGE: Record<ValidationStatus, { bg: string; text: string; icon: string }> = {
+  good: { bg: 'bg-green-500', text: 'text-green-100', icon: '\u2713' },
+  warning: { bg: 'bg-yellow-500', text: 'text-yellow-100', icon: '!' },
+  error: { bg: 'bg-red-500', text: 'text-red-100', icon: '\u2715' },
+};
+
 // ─── Azimuth Slot ────────────────────────────────────────────────────────────
 
-function AzimuthSlotCard({ slot }: { slot: AzimuthSlot }) {
+function AzimuthSlotCard({ slot, validation }: { slot: AzimuthSlot; validation?: ImageValidation }) {
   const dispatch = useCineBlockDispatch();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     if (!ACCEPTED_TYPES.includes(file.type)) return;
     const previewUrl = URL.createObjectURL(file);
-    dispatch({ type: 'SET_AZIMUTH_SLOT', azimuth: slot.azimuth, file, previewUrl });
+    let dimensions: ImageDimensions | undefined;
+    try {
+      dimensions = await getImageDimensions(file);
+    } catch {
+      // proceed without dimensions
+    }
+    dispatch({ type: 'SET_AZIMUTH_SLOT', azimuth: slot.azimuth, file, previewUrl, dimensions });
   }, [dispatch, slot.azimuth]);
 
   const onDrop = useCallback((e: DragEvent) => {
@@ -49,6 +126,7 @@ function AzimuthSlotCard({ slot }: { slot: AzimuthSlot }) {
   }, [dispatch, slot.azimuth, slot.previewUrl]);
 
   if (slot.file && slot.previewUrl) {
+    const badge = validation ? VALIDATION_BADGE[validation.status] : null;
     return (
       <div className="relative border border-zinc-600 rounded-lg overflow-hidden h-40 group">
         <img src={slot.previewUrl} alt={slot.label} className="w-full h-full object-cover" />
@@ -56,6 +134,14 @@ function AzimuthSlotCard({ slot }: { slot: AzimuthSlot }) {
         <div className="absolute top-2 left-2 bg-black/60 rounded px-2 py-0.5 text-xs text-white font-medium">
           {slot.label} ({slot.azimuth}&deg;)
         </div>
+        {badge && (
+          <div
+            className={`absolute top-2 right-10 w-6 h-6 rounded-full ${badge.bg} ${badge.text} text-xs font-bold flex items-center justify-center`}
+            title={validation?.message ?? validation?.status}
+          >
+            {badge.icon}
+          </div>
+        )}
         <button
           onClick={onClear}
           className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 text-white text-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
@@ -63,8 +149,11 @@ function AzimuthSlotCard({ slot }: { slot: AzimuthSlot }) {
         >
           &times;
         </button>
-        <div className="absolute bottom-2 left-2 right-2 text-xs text-white/70 truncate bg-black/40 rounded px-1.5 py-0.5">
-          {slot.file.name}
+        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between bg-black/40 rounded px-1.5 py-0.5">
+          <span className="text-xs text-white/70 truncate">{slot.file.name}</span>
+          {slot.dimensions && (
+            <span className="text-xs text-white/50 shrink-0 ml-2">{slot.dimensions.width}&times;{slot.dimensions.height}</span>
+          )}
         </div>
       </div>
     );
@@ -95,12 +184,21 @@ function AzimuthSlotCard({ slot }: { slot: AzimuthSlot }) {
 
 // ─── Free Image Card ─────────────────────────────────────────────────────────
 
-function FreeImageCard({ image }: { image: { id: string; previewUrl: string; file: File } }) {
+function FreeImageCard({ image, validation }: { image: { id: string; previewUrl: string; file: File; dimensions?: ImageDimensions }; validation?: ImageValidation }) {
   const dispatch = useCineBlockDispatch();
+  const badge = validation ? VALIDATION_BADGE[validation.status] : null;
   return (
     <div className="relative border border-zinc-600 rounded-lg overflow-hidden h-32 group">
       <img src={image.previewUrl} alt={image.file.name} className="w-full h-full object-cover" />
       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+      {badge && (
+        <div
+          className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-full ${badge.bg} ${badge.text} text-xs font-bold flex items-center justify-center`}
+          title={validation?.message ?? validation?.status}
+        >
+          {badge.icon}
+        </div>
+      )}
       <button
         onClick={() => {
           URL.revokeObjectURL(image.previewUrl);
@@ -111,8 +209,11 @@ function FreeImageCard({ image }: { image: { id: string; previewUrl: string; fil
       >
         &times;
       </button>
-      <div className="absolute bottom-1.5 left-1.5 right-1.5 text-xs text-white/70 truncate bg-black/40 rounded px-1.5 py-0.5">
-        {image.file.name}
+      <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between bg-black/40 rounded px-1.5 py-0.5">
+        <span className="text-xs text-white/70 truncate">{image.file.name}</span>
+        {image.dimensions && (
+          <span className="text-xs text-white/50 shrink-0 ml-2">{image.dimensions.width}&times;{image.dimensions.height}</span>
+        )}
       </div>
     </div>
   );
@@ -126,15 +227,22 @@ function FreeUploadDropzone() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const handleFiles = useCallback((files: FileList) => {
+  const handleFiles = useCallback(async (files: FileList) => {
     const remaining = 8 - state.freeImages.length;
     const toAdd = Array.from(files).filter((f) => ACCEPTED_TYPES.includes(f.type)).slice(0, remaining);
     for (const file of toAdd) {
+      let dimensions: ImageDimensions | undefined;
+      try {
+        dimensions = await getImageDimensions(file);
+      } catch {
+        // proceed without dimensions
+      }
       dispatch({
         type: 'ADD_FREE_IMAGE',
         id: crypto.randomUUID(),
         file,
         previewUrl: URL.createObjectURL(file),
+        dimensions,
       });
     }
   }, [dispatch, state.freeImages.length]);
@@ -179,32 +287,105 @@ function FreeUploadDropzone() {
 function GenerationSettingsPanel() {
   const state = useCineBlockState();
   const dispatch = useCineBlockDispatch();
+  const info = MODEL_INFO[state.generationSettings.model];
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-zinc-500">Model</label>
-        <select
-          value={state.generationSettings.model}
-          onChange={(e) => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { model: e.target.value as 'Marble 0.1-mini' | 'Marble 0.1-plus' } })}
-          className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
-        >
-          <option value="Marble 0.1-mini">Mini (~30-45s)</option>
-          <option value="Marble 0.1-plus">Plus (~5-10min)</option>
-        </select>
+    <div className="space-y-2">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-zinc-500">Model</label>
+          <select
+            value={state.generationSettings.model}
+            onChange={(e) => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { model: e.target.value as 'Marble 0.1-mini' | 'Marble 0.1-plus' } })}
+            className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
+          >
+            <option value="Marble 0.1-mini">Mini (~30-45s)</option>
+            <option value="Marble 0.1-plus">Plus (~5-10min)</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-zinc-500">Splat Quality</label>
+          <select
+            value={state.generationSettings.splatResolution}
+            onChange={(e) => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { splatResolution: e.target.value as '100k' | '500k' | 'full_res' } })}
+            className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
+          >
+            <option value="100k">100k (fast)</option>
+            <option value="500k">500k (balanced)</option>
+            <option value="full_res">Full res (best)</option>
+          </select>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-zinc-500">Splat Quality</label>
-        <select
-          value={state.generationSettings.splatResolution}
-          onChange={(e) => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { splatResolution: e.target.value as '100k' | '500k' | 'full_res' } })}
-          className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
-        >
-          <option value="100k">100k (fast)</option>
-          <option value="500k">500k (balanced)</option>
-          <option value="full_res">Full res (best)</option>
-        </select>
-      </div>
+      {info && (
+        <p className="text-xs text-zinc-500">
+          <span>{info.cost}</span>
+          <span className="mx-1.5">&middot;</span>
+          <span>{info.time}</span>
+          <span className="mx-1.5">&middot;</span>
+          <span>{info.quality}</span>
+          <span className="mx-1.5">&middot;</span>
+          <span>{info.note}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Advanced Settings Panel ─────────────────────────────────────────────────
+
+function AdvancedSettingsPanel() {
+  const state = useCineBlockState();
+  const dispatch = useCineBlockDispatch();
+  const [open, setOpen] = useState(false);
+  const seed = state.generationSettings.seed;
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+      >
+        <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+        </svg>
+        Advanced
+      </button>
+
+      {open && (
+        <div className="mt-2 border-l-2 border-zinc-700 pl-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-zinc-500">Seed</label>
+            <input
+              type="number"
+              min={0}
+              max={4294967295}
+              value={seed ?? ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === '') {
+                  dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { seed: undefined } });
+                } else {
+                  const num = Math.max(0, Math.min(4294967295, Math.floor(Number(val))));
+                  if (!isNaN(num)) {
+                    dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { seed: num } });
+                  }
+                }
+              }}
+              placeholder="Random"
+              className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500 w-36"
+            />
+            {seed != null && (
+              <button
+                onClick={() => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { seed: undefined } })}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Random
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-zinc-600">Set a seed to get reproducible results. Same inputs + same seed = same world.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -462,11 +643,28 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
     }
   })();
 
+  // Compute image validations
+  const imageValidations: ImageValidation[] = (() => {
+    switch (state.inputMode) {
+      case 'guided': {
+        const filledImages = state.locationImages.filter((s) => s.file !== null);
+        const dims = filledImages.map((s) => s.dimensions);
+        return validateImages(dims);
+      }
+      case 'free': {
+        const dims = state.freeImages.map((img) => img.dimensions);
+        return validateImages(dims);
+      }
+      default:
+        return [];
+    }
+  })();
+
   const isPlus = state.generationSettings.model === 'Marble 0.1-plus';
   const statusMessages: Record<string, string> = {
-    uploading: 'Uploading images…',
-    generating: isPlus ? 'Building your set (~5-10min, Plus model)…' : 'Building your set (~30-45s)…',
-    polling: 'Waiting for world generation…',
+    uploading: 'Uploading images\u2026',
+    generating: isPlus ? 'Building your set (~5-10min, Plus model)\u2026' : 'Building your set (~30-45s)\u2026',
+    polling: 'Waiting for world generation\u2026',
   };
 
   const INPUT_MODES: { key: InputMode; label: string }[] = [
@@ -496,7 +694,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
   }
 
   async function handleGenerate() {
-    const { model } = state.generationSettings;
+    const { model, seed } = state.generationSettings;
     const textPrompt = state.sceneDescription.trim() || undefined;
 
     const callbacks = {
@@ -511,7 +709,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
       switch (state.inputMode) {
         case 'text': {
           if (!textPrompt) return;
-          world = await generateFromText(textPrompt, callbacks, { model });
+          world = await generateFromText(textPrompt, callbacks, { model, seed });
           break;
         }
         case 'free': {
@@ -519,6 +717,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
           const freeSlots = state.freeImages.map((img) => ({ file: img.file, azimuth: null as number | null }));
           world = await uploadAndGenerate(freeSlots, callbacks, {
             model,
+            seed,
             reconstructImages: true,
             textPrompt,
           });
@@ -530,7 +729,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
             .filter((s): s is typeof s & { file: File } => s.file !== null)
             .map((s) => ({ file: s.file, azimuth: s.azimuth as number | null }));
           if (slotsWithFiles.length < 2) return;
-          world = await uploadAndGenerate(slotsWithFiles, callbacks, { model, textPrompt });
+          world = await uploadAndGenerate(slotsWithFiles, callbacks, { model, seed, textPrompt });
           break;
         }
       }
@@ -555,9 +754,12 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
   // Check which assets are referenced by shots (for removal confirmation)
   const referencedAssetIds = new Set(state.shots.flatMap((s) => s.assetIds));
 
+  // Build a mapping from filled guided slots to their validation index
+  let guidedValidationIndex = 0;
+
   return (
     <>
-      {isLoading && <LoadingOverlay message={statusMessages[state.worldStatus] ?? 'Processing…'} model={state.generationSettings.model} />}
+      {isLoading && <LoadingOverlay message={statusMessages[state.worldStatus] ?? 'Processing\u2026'} model={state.generationSettings.model} />}
 
       <div className="max-w-4xl mx-auto p-8 space-y-10">
         <div>
@@ -600,14 +802,26 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
             ))}
           </div>
 
+          {/* Contextual tip banner */}
+          <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+            <svg className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            </svg>
+            <p className="text-xs text-blue-300/80 leading-relaxed">{MODE_TIPS[state.inputMode]}</p>
+          </div>
+
           {/* Guided mode */}
           {state.inputMode === 'guided' && (
             <div className="space-y-3">
-              <p className="text-sm text-zinc-500">Upload azimuth images to generate your 3D world. Minimum 2, recommended 3+.</p>
               <div className="grid grid-cols-2 gap-4">
-                {state.locationImages.map((slot) => (
-                  <AzimuthSlotCard key={slot.azimuth} slot={slot} />
-                ))}
+                {state.locationImages.map((slot) => {
+                  let validation: ImageValidation | undefined;
+                  if (slot.file) {
+                    validation = imageValidations[guidedValidationIndex];
+                    guidedValidationIndex++;
+                  }
+                  return <AzimuthSlotCard key={slot.azimuth} slot={slot} validation={validation} />;
+                })}
               </div>
             </div>
           )}
@@ -615,11 +829,10 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
           {/* Free upload mode */}
           {state.inputMode === 'free' && (
             <div className="space-y-3">
-              <p className="text-sm text-zinc-500">Upload 2-8 images from any angle. The AI will reconstruct the scene automatically.</p>
               {state.freeImages.length > 0 && (
                 <div className="grid grid-cols-3 gap-3">
-                  {state.freeImages.map((img) => (
-                    <FreeImageCard key={img.id} image={img} />
+                  {state.freeImages.map((img, i) => (
+                    <FreeImageCard key={img.id} image={img} validation={imageValidations[i]} />
                   ))}
                 </div>
               )}
@@ -627,12 +840,8 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
             </div>
           )}
 
-          {/* Text-only mode */}
-          {state.inputMode === 'text' && (
-            <div className="space-y-2">
-              <p className="text-sm text-zinc-500">Describe your scene and the AI will generate a 3D world from text alone.</p>
-            </div>
-          )}
+          {/* Text-only mode — no extra content needed, tip banner covers it */}
+          {state.inputMode === 'text' && <div />}
 
           {/* Scene description (all modes) */}
           <div>
@@ -654,6 +863,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
 
           {/* Generation settings */}
           <GenerationSettingsPanel />
+          <AdvancedSettingsPanel />
         </section>
 
         {/* ── Section B — Scene Assets ───────────────────────────────────── */}
