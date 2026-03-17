@@ -79,7 +79,7 @@ export interface GenerationOptions {
 
 // --- API Functions ---
 
-export async function prepareUpload(file: File): Promise<PrepareUploadResponse> {
+export async function prepareUpload(file: File, kind: 'image' | 'video' = 'image'): Promise<PrepareUploadResponse> {
   const apiKey = getApiKey();
   const ext = file.name.split('.').pop() ?? 'jpg';
   const res = await fetch(`${BASE_URL}/marble/v1/media-assets:prepare_upload`, {
@@ -87,7 +87,7 @@ export async function prepareUpload(file: File): Promise<PrepareUploadResponse> 
     headers: headers(apiKey),
     body: JSON.stringify({
       file_name: file.name,
-      kind: 'image',
+      kind,
       extension: ext,
     }),
   });
@@ -287,5 +287,112 @@ export async function generateFromText(
 ): Promise<WorldResponse> {
   callbacks?.onGenerating?.();
   const operation = await generateWorldFromText(textPrompt, undefined, options);
+  return pollUntilDone(operation.operation_id, getTimeoutMs(options?.model), callbacks);
+}
+
+// --- Video & Single-Image Generation ---
+
+export async function generateWorldFromVideo(
+  mediaAssetId: string,
+  displayName = 'CineBlock World',
+  options: Pick<GenerationOptions, 'model' | 'seed'> & { textPrompt?: string } = {},
+): Promise<OperationResponse> {
+  const apiKey = getApiKey();
+  const body: Record<string, unknown> = {
+    display_name: displayName,
+    world_prompt: {
+      type: 'video',
+      video_prompt: {
+        source: 'media_asset',
+        media_asset_id: mediaAssetId,
+      },
+      ...(options.textPrompt?.trim() && { text_prompt: options.textPrompt.trim() }),
+    },
+    model: options.model ?? 'Marble 0.1-mini',
+  };
+  if (options.seed != null) {
+    body.seed = options.seed;
+  }
+  const res = await fetch(`${BASE_URL}/marble/v1/worlds:generate`, {
+    method: 'POST',
+    headers: headers(apiKey),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`worlds:generate failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export async function generateWorldFromImage(
+  mediaAssetId: string,
+  displayName = 'CineBlock World',
+  options: Pick<GenerationOptions, 'model' | 'seed'> & { textPrompt?: string; isPano?: boolean } = {},
+): Promise<OperationResponse> {
+  const apiKey = getApiKey();
+  const body: Record<string, unknown> = {
+    display_name: displayName,
+    world_prompt: {
+      type: 'image',
+      image_prompt: {
+        source: 'media_asset',
+        media_asset_id: mediaAssetId,
+      },
+      ...(options.textPrompt?.trim() && { text_prompt: options.textPrompt.trim() }),
+      ...(options.isPano != null && { is_pano: options.isPano }),
+    },
+    model: options.model ?? 'Marble 0.1-mini',
+  };
+  if (options.seed != null) {
+    body.seed = options.seed;
+  }
+  const res = await fetch(`${BASE_URL}/marble/v1/worlds:generate`, {
+    method: 'POST',
+    headers: headers(apiKey),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`worlds:generate failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export async function uploadVideoAndGenerate(
+  file: File,
+  callbacks?: GenerationCallbacks,
+  options?: Pick<GenerationOptions, 'model' | 'seed'> & { textPrompt?: string },
+): Promise<WorldResponse> {
+  callbacks?.onUploading?.();
+  const prepared = await prepareUpload(file, 'video');
+  await uploadImage(prepared.upload_info.upload_url, file, prepared.upload_info.required_headers);
+
+  callbacks?.onGenerating?.();
+  const operation = await generateWorldFromVideo(
+    prepared.media_asset.media_asset_id,
+    undefined,
+    options,
+  );
+
+  return pollUntilDone(operation.operation_id, getTimeoutMs(options?.model), callbacks);
+}
+
+export async function uploadImageAndGenerate(
+  file: File,
+  callbacks?: GenerationCallbacks,
+  options?: Pick<GenerationOptions, 'model' | 'seed'> & { textPrompt?: string; isPano?: boolean },
+): Promise<WorldResponse> {
+  callbacks?.onUploading?.();
+  const prepared = await prepareUpload(file, 'image');
+  await uploadImage(prepared.upload_info.upload_url, file, prepared.upload_info.required_headers);
+
+  callbacks?.onGenerating?.();
+  const operation = await generateWorldFromImage(
+    prepared.media_asset.media_asset_id,
+    undefined,
+    options,
+  );
+
   return pollUntilDone(operation.operation_id, getTimeoutMs(options?.model), callbacks);
 }
