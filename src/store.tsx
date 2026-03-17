@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings, ImageDimensions } from './types';
+import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings, ImageDimensions, VideoSlot, SingleImageSlot } from './types';
 
 // --- Actions ---
 
@@ -14,7 +14,7 @@ export type Action =
   | { type: 'REMOVE_SHOT'; id: string }
   | { type: 'UPDATE_SHOT'; id: string; field: string; value: unknown }
   | { type: 'SET_WORLD_STATUS'; status: CineBlockState['worldStatus']; error?: string }
-  | { type: 'SET_WORLD_DATA'; worldId: string; spzUrl: string; colliderUrl: string }
+  | { type: 'SET_WORLD_DATA'; worldId: string; spzUrl: string; colliderUrl: string; worldMarbleUrl?: string }
   | { type: 'SET_ACTIVE_SHOT'; index: number }
   | { type: 'SET_FRAME_TYPE'; frameType: 'start' | 'end' }
   | { type: 'TOGGLE_ASSET_VISIBILITY'; assetId: string }
@@ -32,6 +32,10 @@ export type Action =
   | { type: 'REMOVE_FREE_IMAGE'; id: string }
   | { type: 'SET_SCENE_DESCRIPTION'; description: string }
   | { type: 'SET_GENERATION_SETTINGS'; settings: Partial<GenerationSettings> }
+  | { type: 'SET_VIDEO_FILE'; file: File; previewUrl: string; sizeBytes: number; format: string }
+  | { type: 'CLEAR_VIDEO_FILE' }
+  | { type: 'SET_SINGLE_IMAGE'; file: File; previewUrl: string; dimensions?: ImageDimensions }
+  | { type: 'CLEAR_SINGLE_IMAGE' }
   | { type: 'RESET' };
 
 // --- Initial State ---
@@ -53,11 +57,14 @@ export const initialState: CineBlockState = {
   worldError: null,
   spzUrl: null,
   colliderUrl: null,
+  worldMarbleUrl: null,
   aspectRatio: '16:9',
   inputMode: 'guided',
   freeImages: [],
   sceneDescription: '',
   generationSettings: { model: 'Marble 0.1-mini', splatResolution: '500k' },
+  videoFile: null,
+  singleImage: null,
   activeShotIndex: 0,
   activeFrameType: 'start',
   assetVisibility: {},
@@ -162,6 +169,7 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         worldId: action.worldId,
         spzUrl: action.spzUrl,
         colliderUrl: action.colliderUrl,
+        worldMarbleUrl: action.worldMarbleUrl ?? null,
         worldStatus: 'ready',
       };
 
@@ -276,6 +284,24 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         ...state,
         generationSettings: { ...state.generationSettings, ...action.settings },
       };
+
+    case 'SET_VIDEO_FILE':
+      return {
+        ...state,
+        videoFile: { file: action.file, previewUrl: action.previewUrl, sizeBytes: action.sizeBytes, format: action.format },
+      };
+
+    case 'CLEAR_VIDEO_FILE':
+      return { ...state, videoFile: null };
+
+    case 'SET_SINGLE_IMAGE':
+      return {
+        ...state,
+        singleImage: { file: action.file, previewUrl: action.previewUrl, dimensions: action.dimensions },
+      };
+
+    case 'CLEAR_SINGLE_IMAGE':
+      return { ...state, singleImage: null };
 
     case 'RESET':
       return initialState;
