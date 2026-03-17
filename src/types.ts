@@ -10,10 +10,16 @@ export const ASPECT_RATIOS: Record<AspectRatioKey, number> = {
 
 export type InputMode = 'guided' | 'free' | 'text';
 
+export interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
 export interface FreeImageSlot {
   id: string;
   file: File;
   previewUrl: string;
+  dimensions?: ImageDimensions;
 }
 
 export interface GenerationSettings {
@@ -58,6 +64,7 @@ export interface AzimuthSlot {
   file: File | null;
   previewUrl: string | null;
   mediaAssetId: string | null;
+  dimensions?: ImageDimensions;
 }
 
 export interface CineBlockAsset {
