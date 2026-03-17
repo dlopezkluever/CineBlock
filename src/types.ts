@@ -8,6 +8,20 @@ export const ASPECT_RATIOS: Record<AspectRatioKey, number> = {
   '9:16': 9 / 16,
 };
 
+export type InputMode = 'guided' | 'free' | 'text';
+
+export interface FreeImageSlot {
+  id: string;
+  file: File;
+  previewUrl: string;
+}
+
+export interface GenerationSettings {
+  model: 'Marble 0.1-mini' | 'Marble 0.1-plus';
+  splatResolution: '100k' | '500k' | 'full_res';
+  seed?: number;
+}
+
 export interface CineBlockState {
   currentView: 'setup' | 'studio' | 'results';
 
@@ -16,6 +30,12 @@ export interface CineBlockState {
   assets: CineBlockAsset[];
   shots: CineBlockShot[];
   aspectRatio: AspectRatioKey;
+
+  // Input mode & generation
+  inputMode: InputMode;
+  freeImages: FreeImageSlot[];
+  sceneDescription: string;
+  generationSettings: GenerationSettings;
 
   // Marble world
   worldId: string | null;
