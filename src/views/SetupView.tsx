@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
-import { uploadAndGenerate } from '../services/marbleApi';
-import type { AzimuthSlot, CineBlockShot, AspectRatioKey } from '../types';
+import { uploadAndGenerate, generateFromText } from '../services/marbleApi';
+import type { AzimuthSlot, CineBlockShot, AspectRatioKey, InputMode } from '../types';
 import { ASPECT_RATIOS } from '../types';
 
 const ASSET_COLORS = ['#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444', '#F59E0B', '#EC4899', '#06B6D4'];
@@ -89,6 +89,122 @@ function AzimuthSlotCard({ slot }: { slot: AzimuthSlot }) {
       <span className="text-sm font-medium text-zinc-300">{slot.label} ({slot.azimuth}&deg;)</span>
       <span className="text-xs text-zinc-500 mt-1">{SLOT_HINTS[slot.azimuth]}</span>
       <span className="text-xs text-zinc-600 mt-0.5">Drop image or click to browse</span>
+    </div>
+  );
+}
+
+// ─── Free Image Card ─────────────────────────────────────────────────────────
+
+function FreeImageCard({ image }: { image: { id: string; previewUrl: string; file: File } }) {
+  const dispatch = useCineBlockDispatch();
+  return (
+    <div className="relative border border-zinc-600 rounded-lg overflow-hidden h-32 group">
+      <img src={image.previewUrl} alt={image.file.name} className="w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+      <button
+        onClick={() => {
+          URL.revokeObjectURL(image.previewUrl);
+          dispatch({ type: 'REMOVE_FREE_IMAGE', id: image.id });
+        }}
+        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white text-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+        title="Remove image"
+      >
+        &times;
+      </button>
+      <div className="absolute bottom-1.5 left-1.5 right-1.5 text-xs text-white/70 truncate bg-black/40 rounded px-1.5 py-0.5">
+        {image.file.name}
+      </div>
+    </div>
+  );
+}
+
+// ─── Free Upload Dropzone ────────────────────────────────────────────────────
+
+function FreeUploadDropzone() {
+  const dispatch = useCineBlockDispatch();
+  const state = useCineBlockState();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFiles = useCallback((files: FileList) => {
+    const remaining = 8 - state.freeImages.length;
+    const toAdd = Array.from(files).filter((f) => ACCEPTED_TYPES.includes(f.type)).slice(0, remaining);
+    for (const file of toAdd) {
+      dispatch({
+        type: 'ADD_FREE_IMAGE',
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      });
+    }
+  }, [dispatch, state.freeImages.length]);
+
+  const onDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
+
+  const onFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) handleFiles(e.target.files);
+    e.target.value = '';
+  }, [handleFiles]);
+
+  if (state.freeImages.length >= 8) return null;
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+      onClick={() => inputRef.current?.click()}
+      className={`border-2 border-dashed rounded-lg h-32 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+        dragOver
+          ? 'border-blue-400 bg-blue-400/10'
+          : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500 hover:bg-zinc-800'
+      }`}
+    >
+      <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple onChange={onFileChange} className="hidden" />
+      <svg className="w-7 h-7 text-zinc-500 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+      </svg>
+      <span className="text-xs text-zinc-400">Drop images or click to browse</span>
+      <span className="text-xs text-zinc-600 mt-0.5">{state.freeImages.length}/8 images</span>
+    </div>
+  );
+}
+
+// ─── Generation Settings Panel ───────────────────────────────────────────────
+
+function GenerationSettingsPanel() {
+  const state = useCineBlockState();
+  const dispatch = useCineBlockDispatch();
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-zinc-500">Model</label>
+        <select
+          value={state.generationSettings.model}
+          onChange={(e) => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { model: e.target.value as 'Marble 0.1-mini' | 'Marble 0.1-plus' } })}
+          className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
+        >
+          <option value="Marble 0.1-mini">Mini (~30-45s)</option>
+          <option value="Marble 0.1-plus">Plus (~5-10min)</option>
+        </select>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-zinc-500">Splat Quality</label>
+        <select
+          value={state.generationSettings.splatResolution}
+          onChange={(e) => dispatch({ type: 'SET_GENERATION_SETTINGS', settings: { splatResolution: e.target.value as '100k' | '500k' | 'full_res' } })}
+          className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
+        >
+          <option value="100k">100k (fast)</option>
+          <option value="500k">500k (balanced)</option>
+          <option value="full_res">Full res (best)</option>
+        </select>
+      </div>
     </div>
   );
 }
@@ -309,7 +425,8 @@ function ShotCard({ shot, index, assets }: {
 
 // ─── Loading Overlay ─────────────────────────────────────────────────────────
 
-function LoadingOverlay({ message }: { message: string }) {
+function LoadingOverlay({ message, model }: { message: string; model?: string }) {
+  const isPlus = model === 'Marble 0.1-plus';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="flex flex-col items-center gap-4 bg-zinc-900 border border-zinc-700 rounded-xl px-10 py-8 shadow-2xl">
@@ -319,7 +436,9 @@ function LoadingOverlay({ message }: { message: string }) {
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
         <p className="text-sm text-zinc-200 font-medium">{message}</p>
-        <p className="text-xs text-zinc-500">This may take 30–45 seconds</p>
+        <p className="text-xs text-zinc-500">
+          {isPlus ? 'This may take 5\u201310 minutes (Plus model)' : 'This may take 30\u201345 seconds'}
+        </p>
       </div>
     </div>
   );
@@ -333,14 +452,28 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
 
   const filledSlots = state.locationImages.filter((s) => s.file !== null).length;
   const hasShot = state.shots.some((s) => s.name.trim() !== '');
-  const canProceed = filledSlots >= 2 && hasShot;
   const isLoading = ['uploading', 'generating', 'polling'].includes(state.worldStatus);
 
+  const canProceed = hasShot && (() => {
+    switch (state.inputMode) {
+      case 'guided': return filledSlots >= 2;
+      case 'free': return state.freeImages.length >= 2;
+      case 'text': return state.sceneDescription.trim().length > 0;
+    }
+  })();
+
+  const isPlus = state.generationSettings.model === 'Marble 0.1-plus';
   const statusMessages: Record<string, string> = {
     uploading: 'Uploading images…',
-    generating: 'Building your set (~30-45s)…',
+    generating: isPlus ? 'Building your set (~5-10min, Plus model)…' : 'Building your set (~30-45s)…',
     polling: 'Waiting for world generation…',
   };
+
+  const INPUT_MODES: { key: InputMode; label: string }[] = [
+    { key: 'guided', label: '4 Directions' },
+    { key: 'free', label: 'Free Upload' },
+    { key: 'text', label: 'Text Only' },
+  ];
 
   function addAsset() {
     const colorIndex = state.assets.length % ASSET_COLORS.length;
@@ -363,23 +496,53 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
   }
 
   async function handleGenerate() {
-    const slotsWithFiles = state.locationImages
-      .filter((s): s is typeof s & { file: File } => s.file !== null)
-      .map((s) => ({ file: s.file, azimuth: s.azimuth }));
+    const { model } = state.generationSettings;
+    const textPrompt = state.sceneDescription.trim() || undefined;
 
-    if (slotsWithFiles.length < 2) return;
+    const callbacks = {
+      onUploading: () => dispatch({ type: 'SET_WORLD_STATUS', status: 'uploading' }),
+      onGenerating: () => dispatch({ type: 'SET_WORLD_STATUS', status: 'generating' }),
+      onPolling: () => dispatch({ type: 'SET_WORLD_STATUS', status: 'polling' }),
+    };
 
     try {
-      const world = await uploadAndGenerate(slotsWithFiles, {
-        onUploading: () => dispatch({ type: 'SET_WORLD_STATUS', status: 'uploading' }),
-        onGenerating: () => dispatch({ type: 'SET_WORLD_STATUS', status: 'generating' }),
-        onPolling: () => dispatch({ type: 'SET_WORLD_STATUS', status: 'polling' }),
-      });
+      let world;
+
+      switch (state.inputMode) {
+        case 'text': {
+          if (!textPrompt) return;
+          world = await generateFromText(textPrompt, callbacks, { model });
+          break;
+        }
+        case 'free': {
+          if (state.freeImages.length < 2) return;
+          const freeSlots = state.freeImages.map((img) => ({ file: img.file, azimuth: null as number | null }));
+          world = await uploadAndGenerate(freeSlots, callbacks, {
+            model,
+            reconstructImages: true,
+            textPrompt,
+          });
+          break;
+        }
+        case 'guided':
+        default: {
+          const slotsWithFiles = state.locationImages
+            .filter((s): s is typeof s & { file: File } => s.file !== null)
+            .map((s) => ({ file: s.file, azimuth: s.azimuth as number | null }));
+          if (slotsWithFiles.length < 2) return;
+          world = await uploadAndGenerate(slotsWithFiles, callbacks, { model, textPrompt });
+          break;
+        }
+      }
+
+      const resolution = state.generationSettings.splatResolution;
+      const spzUrl = world.assets.splats.spz_urls[resolution]
+        ?? world.assets.splats.spz_urls['500k'];
 
       dispatch({
         type: 'SET_WORLD_DATA',
         worldId: world.world_id,
-        spzUrl: world.assets.splats.spz_urls['500k'],
+        spzUrl,
         colliderUrl: world.assets.mesh.collider_mesh_url,
       });
       onNavigate('studio');
@@ -394,7 +557,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
 
   return (
     <>
-      {isLoading && <LoadingOverlay message={statusMessages[state.worldStatus] ?? 'Processing…'} />}
+      {isLoading && <LoadingOverlay message={statusMessages[state.worldStatus] ?? 'Processing…'} model={state.generationSettings.model} />}
 
       <div className="max-w-4xl mx-auto p-8 space-y-10">
         <div>
@@ -404,20 +567,93 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
           </p>
         </div>
 
-        {/* ── Section A — Location Images ────────────────────────────────── */}
-        <section className="space-y-3">
+        {/* ── Section A — World Input ─────────────────────────────────── */}
+        <section className="space-y-4">
           <div className="flex items-baseline justify-between">
-            <h3 className="text-lg font-semibold text-zinc-200">A. Location Images</h3>
-            <span className={`text-xs font-medium ${filledSlots >= 2 ? 'text-green-400' : 'text-zinc-500'}`}>
-              {filledSlots}/4 slots filled {filledSlots < 2 && '(min 2)'}
-            </span>
+            <h3 className="text-lg font-semibold text-zinc-200">A. World Input</h3>
+            {state.inputMode === 'guided' && (
+              <span className={`text-xs font-medium ${filledSlots >= 2 ? 'text-green-400' : 'text-zinc-500'}`}>
+                {filledSlots}/4 slots filled {filledSlots < 2 && '(min 2)'}
+              </span>
+            )}
+            {state.inputMode === 'free' && (
+              <span className={`text-xs font-medium ${state.freeImages.length >= 2 ? 'text-green-400' : 'text-zinc-500'}`}>
+                {state.freeImages.length}/8 images {state.freeImages.length < 2 && '(min 2)'}
+              </span>
+            )}
           </div>
-          <p className="text-sm text-zinc-500">Upload azimuth images to generate your 3D world. Minimum 2, recommended 3+.</p>
-          <div className="grid grid-cols-2 gap-4">
-            {state.locationImages.map((slot) => (
-              <AzimuthSlotCard key={slot.azimuth} slot={slot} />
+
+          {/* Mode toggle */}
+          <div className="flex rounded-lg bg-zinc-800/80 border border-zinc-700 p-1 gap-1">
+            {INPUT_MODES.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => dispatch({ type: 'SET_INPUT_MODE', mode: key })}
+                className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                  state.inputMode === key
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                }`}
+              >
+                {label}
+              </button>
             ))}
           </div>
+
+          {/* Guided mode */}
+          {state.inputMode === 'guided' && (
+            <div className="space-y-3">
+              <p className="text-sm text-zinc-500">Upload azimuth images to generate your 3D world. Minimum 2, recommended 3+.</p>
+              <div className="grid grid-cols-2 gap-4">
+                {state.locationImages.map((slot) => (
+                  <AzimuthSlotCard key={slot.azimuth} slot={slot} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Free upload mode */}
+          {state.inputMode === 'free' && (
+            <div className="space-y-3">
+              <p className="text-sm text-zinc-500">Upload 2-8 images from any angle. The AI will reconstruct the scene automatically.</p>
+              {state.freeImages.length > 0 && (
+                <div className="grid grid-cols-3 gap-3">
+                  {state.freeImages.map((img) => (
+                    <FreeImageCard key={img.id} image={img} />
+                  ))}
+                </div>
+              )}
+              <FreeUploadDropzone />
+            </div>
+          )}
+
+          {/* Text-only mode */}
+          {state.inputMode === 'text' && (
+            <div className="space-y-2">
+              <p className="text-sm text-zinc-500">Describe your scene and the AI will generate a 3D world from text alone.</p>
+            </div>
+          )}
+
+          {/* Scene description (all modes) */}
+          <div>
+            <label className="text-xs text-zinc-500 block mb-1.5">
+              Scene description {state.inputMode === 'text' ? '(required)' : '(optional)'}
+            </label>
+            <textarea
+              value={state.sceneDescription}
+              onChange={(e) => dispatch({ type: 'SET_SCENE_DESCRIPTION', description: e.target.value })}
+              placeholder="Describe the scene you want to create…"
+              maxLength={2000}
+              rows={state.inputMode === 'text' ? 4 : 2}
+              className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg text-sm text-zinc-300 px-3 py-2 outline-none focus:border-blue-500 resize-none"
+            />
+            {state.inputMode === 'text' && (
+              <p className="text-xs text-zinc-600 text-right mt-0.5">{state.sceneDescription.length}/2000</p>
+            )}
+          </div>
+
+          {/* Generation settings */}
+          <GenerationSettingsPanel />
         </section>
 
         {/* ── Section B — Scene Assets ───────────────────────────────────── */}
@@ -539,13 +775,22 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
             className="w-full py-3.5 rounded-lg font-semibold text-sm transition-colors
               disabled:bg-zinc-700 disabled:text-zinc-500 disabled:cursor-not-allowed
               bg-blue-600 hover:bg-blue-500 text-white"
-            title={!canProceed ? `Need ${filledSlots < 2 ? 'at least 2 images' : ''}${filledSlots < 2 && !hasShot ? ' and ' : ''}${!hasShot ? 'at least 1 named shot' : ''}` : undefined}
+            title={!canProceed ? (() => {
+              const parts: string[] = [];
+              if (!hasShot) parts.push('at least 1 named shot');
+              if (state.inputMode === 'guided' && filledSlots < 2) parts.push('at least 2 images');
+              if (state.inputMode === 'free' && state.freeImages.length < 2) parts.push('at least 2 images');
+              if (state.inputMode === 'text' && !state.sceneDescription.trim()) parts.push('a scene description');
+              return `Need ${parts.join(' and ')}`;
+            })() : undefined}
           >
             Generate World &amp; Enter Studio
           </button>
           {!canProceed && !isLoading && (
             <p className="text-xs text-zinc-500 mt-2 text-center">
-              {filledSlots < 2 && 'Upload at least 2 location images. '}
+              {state.inputMode === 'guided' && filledSlots < 2 && 'Upload at least 2 location images. '}
+              {state.inputMode === 'free' && state.freeImages.length < 2 && 'Upload at least 2 images. '}
+              {state.inputMode === 'text' && !state.sceneDescription.trim() && 'Enter a scene description. '}
               {!hasShot && 'Define at least 1 shot with a name.'}
             </p>
           )}
