@@ -8,7 +8,7 @@ export const ASPECT_RATIOS: Record<AspectRatioKey, number> = {
   '9:16': 9 / 16,
 };
 
-export type InputMode = 'guided' | 'free' | 'text';
+export type InputMode = 'guided' | 'free' | 'text' | 'video' | 'single';
 
 export interface ImageDimensions {
   width: number;
@@ -17,6 +17,19 @@ export interface ImageDimensions {
 
 export interface FreeImageSlot {
   id: string;
+  file: File;
+  previewUrl: string;
+  dimensions?: ImageDimensions;
+}
+
+export interface VideoSlot {
+  file: File;
+  previewUrl: string;
+  sizeBytes: number;
+  format: string;
+}
+
+export interface SingleImageSlot {
   file: File;
   previewUrl: string;
   dimensions?: ImageDimensions;
@@ -42,6 +55,8 @@ export interface CineBlockState {
   freeImages: FreeImageSlot[];
   sceneDescription: string;
   generationSettings: GenerationSettings;
+  videoFile: VideoSlot | null;
+  singleImage: SingleImageSlot | null;
 
   // Marble world
   worldId: string | null;
@@ -49,6 +64,7 @@ export interface CineBlockState {
   worldError: string | null;
   spzUrl: string | null;
   colliderUrl: string | null;
+  worldMarbleUrl: string | null;
 
   // Studio state
   activeShotIndex: number;
