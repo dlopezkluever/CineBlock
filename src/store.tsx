@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams } from './types';
+import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings } from './types';
 
 // --- Actions ---
 
@@ -27,6 +27,11 @@ export type Action =
   | { type: 'ADD_CAPTURE'; capture: CineBlockState['captures'][number] }
   | { type: 'TOGGLE_HERO'; captureId: string }
   | { type: 'SET_ASPECT_RATIO'; aspectRatio: AspectRatioKey }
+  | { type: 'SET_INPUT_MODE'; mode: InputMode }
+  | { type: 'ADD_FREE_IMAGE'; id: string; file: File; previewUrl: string }
+  | { type: 'REMOVE_FREE_IMAGE'; id: string }
+  | { type: 'SET_SCENE_DESCRIPTION'; description: string }
+  | { type: 'SET_GENERATION_SETTINGS'; settings: Partial<GenerationSettings> }
   | { type: 'RESET' };
 
 // --- Initial State ---
@@ -49,6 +54,10 @@ export const initialState: CineBlockState = {
   spzUrl: null,
   colliderUrl: null,
   aspectRatio: '16:9',
+  inputMode: 'guided',
+  freeImages: [],
+  sceneDescription: '',
+  generationSettings: { model: 'Marble 0.1-mini', splatResolution: '500k' },
   activeShotIndex: 0,
   activeFrameType: 'start',
   assetVisibility: {},
@@ -242,6 +251,31 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
 
     case 'SET_ASPECT_RATIO':
       return { ...state, aspectRatio: action.aspectRatio };
+
+    case 'SET_INPUT_MODE':
+      return { ...state, inputMode: action.mode };
+
+    case 'ADD_FREE_IMAGE':
+      if (state.freeImages.length >= 8) return state;
+      return {
+        ...state,
+        freeImages: [...state.freeImages, { id: action.id, file: action.file, previewUrl: action.previewUrl }],
+      };
+
+    case 'REMOVE_FREE_IMAGE':
+      return {
+        ...state,
+        freeImages: state.freeImages.filter((img) => img.id !== action.id),
+      };
+
+    case 'SET_SCENE_DESCRIPTION':
+      return { ...state, sceneDescription: action.description };
+
+    case 'SET_GENERATION_SETTINGS':
+      return {
+        ...state,
+        generationSettings: { ...state.generationSettings, ...action.settings },
+      };
 
     case 'RESET':
       return initialState;
