@@ -1,11 +1,15 @@
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
-import { uploadAndGenerate, generateFromText } from '../services/marbleApi';
+import { uploadAndGenerate, generateFromText, uploadVideoAndGenerate, uploadImageAndGenerate } from '../services/marbleApi';
+import { composeScenePrompt } from '../utils/composeScenePrompt';
 import type { AzimuthSlot, CineBlockShot, AspectRatioKey, InputMode, ImageDimensions } from '../types';
 import { ASPECT_RATIOS } from '../types';
 
 const ASSET_COLORS = ['#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444', '#F59E0B', '#EC4899', '#06B6D4'];
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'];
+const ACCEPTED_VIDEO_EXTENSIONS = '.mp4,.webm,.mov,.avi';
+const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024;
 const CAMERA_TYPES: CineBlockShot['cameraType'][] = ['Wide', 'Medium', 'Close-Up', 'OTS', 'POV', 'Two-Shot', 'Insert'];
 const CAMERA_DISTANCES: NonNullable<CineBlockShot['cameraDistance']>[] = ['wide', 'medium', 'close'];
 const CAMERA_HEIGHTS: NonNullable<CineBlockShot['cameraHeight']>[] = ['eye_level', 'high_angle', 'low_angle', 'overhead', 'ground_level'];
@@ -21,6 +25,8 @@ const MODE_TIPS: Record<InputMode, string> = {
   guided: 'Capture your room from the center, looking in each direction. Include overlapping elements between adjacent views for better spatial coherence.',
   free: 'Upload 2\u20138 photos from around the same space. More overlap = better reconstruction. Keep the same resolution and lighting.',
   text: 'Be specific: describe the room type, dimensions, key furniture, wall/floor materials, lighting, and mood.',
+  video: 'Record a slow 360\u00b0 pan of your space. Keep camera steady, avoid zoom. 10\u201330 seconds is ideal.',
+  single: 'Upload your best photo of the space. A wide-angle shot with good lighting works best.',
 };
 
 const MODEL_INFO: Record<string, { cost: string; time: string; quality: string; note: string }> = {
@@ -278,6 +284,191 @@ function FreeUploadDropzone() {
       </svg>
       <span className="text-xs text-zinc-400">Drop images or click to browse</span>
       <span className="text-xs text-zinc-600 mt-0.5">{state.freeImages.length}/8 images</span>
+    </div>
+  );
+}
+
+// ─── Video Upload Dropzone ───────────────────────────────────────────────────
+
+function VideoUploadDropzone() {
+  const dispatch = useCineBlockDispatch();
+  const state = useCineBlockState();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFile = useCallback((file: File) => {
+    setError(null);
+    if (!ACCEPTED_VIDEO_TYPES.includes(file.type)) {
+      setError('Invalid format. Accepted: MP4, WebM, MOV, AVI.');
+      return;
+    }
+    if (file.size > MAX_VIDEO_SIZE_BYTES) {
+      setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 100 MB.`);
+      return;
+    }
+    if (state.videoFile?.previewUrl) URL.revokeObjectURL(state.videoFile.previewUrl);
+    dispatch({
+      type: 'SET_VIDEO_FILE',
+      file,
+      previewUrl: URL.createObjectURL(file),
+      sizeBytes: file.size,
+      format: file.type,
+    });
+  }, [dispatch, state.videoFile]);
+
+  const onDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const onFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = '';
+  }, [handleFile]);
+
+  const onClear = useCallback(() => {
+    if (state.videoFile?.previewUrl) URL.revokeObjectURL(state.videoFile.previewUrl);
+    dispatch({ type: 'CLEAR_VIDEO_FILE' });
+    setError(null);
+  }, [dispatch, state.videoFile]);
+
+  if (state.videoFile) {
+    return (
+      <div className="space-y-2">
+        <div className="relative border border-zinc-600 rounded-lg overflow-hidden group">
+          <video
+            src={state.videoFile.previewUrl}
+            controls
+            className="w-full max-h-64 bg-black"
+          />
+          <button
+            onClick={onClear}
+            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 text-white text-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+            title="Remove video"
+          >
+            &times;
+          </button>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-zinc-400">
+          <span className="truncate">{state.videoFile.file.name}</span>
+          <span className="shrink-0">{(state.videoFile.sizeBytes / 1024 / 1024).toFixed(1)} MB</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`border-2 border-dashed rounded-lg h-40 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+          dragOver
+            ? 'border-blue-400 bg-blue-400/10'
+            : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500 hover:bg-zinc-800'
+        }`}
+      >
+        <input ref={inputRef} type="file" accept={ACCEPTED_VIDEO_EXTENSIONS} onChange={onFileChange} className="hidden" />
+        <svg className="w-8 h-8 text-zinc-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+        </svg>
+        <span className="text-sm font-medium text-zinc-300">Drop video or click to browse</span>
+        <span className="text-xs text-zinc-600 mt-1">MP4, WebM, MOV, AVI &middot; Max 100 MB</span>
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+// ─── Single Image Dropzone ──────────────────────────────────────────────────
+
+function SingleImageDropzone() {
+  const dispatch = useCineBlockDispatch();
+  const state = useCineBlockState();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!ACCEPTED_TYPES.includes(file.type)) return;
+    if (state.singleImage?.previewUrl) URL.revokeObjectURL(state.singleImage.previewUrl);
+    let dimensions: ImageDimensions | undefined;
+    try {
+      dimensions = await getImageDimensions(file);
+    } catch {
+      // proceed without dimensions
+    }
+    dispatch({
+      type: 'SET_SINGLE_IMAGE',
+      file,
+      previewUrl: URL.createObjectURL(file),
+      dimensions,
+    });
+  }, [dispatch, state.singleImage]);
+
+  const onDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const onFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = '';
+  }, [handleFile]);
+
+  const onClear = useCallback(() => {
+    if (state.singleImage?.previewUrl) URL.revokeObjectURL(state.singleImage.previewUrl);
+    dispatch({ type: 'CLEAR_SINGLE_IMAGE' });
+  }, [dispatch, state.singleImage]);
+
+  if (state.singleImage) {
+    return (
+      <div className="relative border border-zinc-600 rounded-lg overflow-hidden h-48 group">
+        <img src={state.singleImage.previewUrl} alt="Single reference" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <button
+          onClick={onClear}
+          className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 text-white text-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+          title="Remove image"
+        >
+          &times;
+        </button>
+        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between bg-black/40 rounded px-1.5 py-0.5">
+          <span className="text-xs text-white/70 truncate">{state.singleImage.file.name}</span>
+          {state.singleImage.dimensions && (
+            <span className="text-xs text-white/50 shrink-0 ml-2">{state.singleImage.dimensions.width}&times;{state.singleImage.dimensions.height}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+      onClick={() => inputRef.current?.click()}
+      className={`border-2 border-dashed rounded-lg h-48 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+        dragOver
+          ? 'border-blue-400 bg-blue-400/10'
+          : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500 hover:bg-zinc-800'
+      }`}
+    >
+      <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" onChange={onFileChange} className="hidden" />
+      <svg className="w-8 h-8 text-zinc-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+      </svg>
+      <span className="text-sm font-medium text-zinc-300">Drop image or click to browse</span>
+      <span className="text-xs text-zinc-600 mt-1">One reference photo (JPEG, PNG, WebP)</span>
     </div>
   );
 }
@@ -640,6 +831,8 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
       case 'guided': return filledSlots >= 2;
       case 'free': return state.freeImages.length >= 2;
       case 'text': return state.sceneDescription.trim().length > 0;
+      case 'video': return state.videoFile !== null;
+      case 'single': return state.singleImage !== null;
     }
   })();
 
@@ -661,8 +854,9 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
   })();
 
   const isPlus = state.generationSettings.model === 'Marble 0.1-plus';
+  const uploadingMsg = state.inputMode === 'video' ? 'Uploading video\u2026' : 'Uploading images\u2026';
   const statusMessages: Record<string, string> = {
-    uploading: 'Uploading images\u2026',
+    uploading: uploadingMsg,
     generating: isPlus ? 'Building your set (~5-10min, Plus model)\u2026' : 'Building your set (~30-45s)\u2026',
     polling: 'Waiting for world generation\u2026',
   };
@@ -670,6 +864,8 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
   const INPUT_MODES: { key: InputMode; label: string }[] = [
     { key: 'guided', label: '4 Directions' },
     { key: 'free', label: 'Free Upload' },
+    { key: 'single', label: 'Single Image' },
+    { key: 'video', label: 'Video' },
     { key: 'text', label: 'Text Only' },
   ];
 
@@ -712,6 +908,16 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
           world = await generateFromText(textPrompt, callbacks, { model, seed });
           break;
         }
+        case 'video': {
+          if (!state.videoFile) return;
+          world = await uploadVideoAndGenerate(state.videoFile.file, callbacks, { model, seed, textPrompt });
+          break;
+        }
+        case 'single': {
+          if (!state.singleImage) return;
+          world = await uploadImageAndGenerate(state.singleImage.file, callbacks, { model, seed, textPrompt });
+          break;
+        }
         case 'free': {
           if (state.freeImages.length < 2) return;
           const freeSlots = state.freeImages.map((img) => ({ file: img.file, azimuth: null as number | null }));
@@ -743,6 +949,7 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
         worldId: world.world_id,
         spzUrl,
         colliderUrl: world.assets.mesh.collider_mesh_url,
+        worldMarbleUrl: world.world_marble_url,
       });
       onNavigate('studio');
     } catch (err) {
@@ -840,14 +1047,33 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
             </div>
           )}
 
+          {/* Single image mode */}
+          {state.inputMode === 'single' && <SingleImageDropzone />}
+
+          {/* Video mode */}
+          {state.inputMode === 'video' && <VideoUploadDropzone />}
+
           {/* Text-only mode — no extra content needed, tip banner covers it */}
           {state.inputMode === 'text' && <div />}
 
           {/* Scene description (all modes) */}
           <div>
-            <label className="text-xs text-zinc-500 block mb-1.5">
-              Scene description {state.inputMode === 'text' ? '(required)' : '(optional)'}
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs text-zinc-500">
+                Scene description {state.inputMode === 'text' ? '(required)' : '(optional)'}
+              </label>
+              {(state.assets.length > 0 || state.shots.some((s) => s.name.trim())) && (
+                <button
+                  onClick={() => {
+                    const prompt = composeScenePrompt(state.assets, state.shots);
+                    if (prompt) dispatch({ type: 'SET_SCENE_DESCRIPTION', description: prompt });
+                  }}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  Compose from assets
+                </button>
+              )}
+            </div>
             <textarea
               value={state.sceneDescription}
               onChange={(e) => dispatch({ type: 'SET_SCENE_DESCRIPTION', description: e.target.value })}
@@ -991,6 +1217,8 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
               if (state.inputMode === 'guided' && filledSlots < 2) parts.push('at least 2 images');
               if (state.inputMode === 'free' && state.freeImages.length < 2) parts.push('at least 2 images');
               if (state.inputMode === 'text' && !state.sceneDescription.trim()) parts.push('a scene description');
+              if (state.inputMode === 'video' && !state.videoFile) parts.push('a video file');
+              if (state.inputMode === 'single' && !state.singleImage) parts.push('an image');
               return `Need ${parts.join(' and ')}`;
             })() : undefined}
           >
@@ -1001,6 +1229,8 @@ export default function SetupView({ onNavigate }: { onNavigate: (view: 'studio')
               {state.inputMode === 'guided' && filledSlots < 2 && 'Upload at least 2 location images. '}
               {state.inputMode === 'free' && state.freeImages.length < 2 && 'Upload at least 2 images. '}
               {state.inputMode === 'text' && !state.sceneDescription.trim() && 'Enter a scene description. '}
+              {state.inputMode === 'video' && !state.videoFile && 'Upload a video file. '}
+              {state.inputMode === 'single' && !state.singleImage && 'Upload an image. '}
               {!hasShot && 'Define at least 1 shot with a name.'}
             </p>
           )}
