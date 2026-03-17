@@ -67,6 +67,16 @@ export interface WorldResponse {
   };
 }
 
+// --- Generation Options ---
+
+export interface GenerationOptions {
+  model?: 'Marble 0.1-mini' | 'Marble 0.1-plus';
+  reconstructImages?: boolean;
+  textPrompt?: string;
+  seed?: number;
+  splatResolution?: '100k' | '500k' | 'full_res';
+}
+
 // --- API Functions ---
 
 export async function prepareUpload(file: File): Promise<PrepareUploadResponse> {
@@ -104,27 +114,67 @@ export async function uploadImage(uploadUrl: string, file: File, requiredHeaders
 }
 
 export async function generateWorld(
-  mediaAssets: { mediaAssetId: string; azimuth: number }[],
+  mediaAssets: { mediaAssetId: string; azimuth: number | null }[],
   displayName = 'CineBlock World',
+  options: GenerationOptions = {},
 ): Promise<OperationResponse> {
   const apiKey = getApiKey();
+  const body: Record<string, unknown> = {
+    display_name: displayName,
+    world_prompt: {
+      type: 'multi-image',
+      multi_image_prompt: mediaAssets.map((a) => ({
+        ...(a.azimuth != null && { azimuth: a.azimuth }),
+        content: {
+          source: 'media_asset',
+          media_asset_id: a.mediaAssetId,
+        },
+      })),
+    },
+    model: options.model ?? 'Marble 0.1-mini',
+  };
+  if (options.textPrompt?.trim()) {
+    body.text_prompt = options.textPrompt.trim();
+  }
+  if (options.reconstructImages) {
+    body.reconstruct_images = true;
+  }
+  if (options.seed != null) {
+    body.seed = options.seed;
+  }
   const res = await fetch(`${BASE_URL}/marble/v1/worlds:generate`, {
     method: 'POST',
     headers: headers(apiKey),
-    body: JSON.stringify({
-      display_name: displayName,
-      world_prompt: {
-        type: 'multi-image',
-        multi_image_prompt: mediaAssets.map((a) => ({
-          azimuth: a.azimuth,
-          content: {
-            source: 'media_asset',
-            media_asset_id: a.mediaAssetId,
-          },
-        })),
-      },
-      model: 'Marble 0.1-mini',
-    }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`worlds:generate failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+export async function generateWorldFromText(
+  textPrompt: string,
+  displayName = 'CineBlock World',
+  options: Pick<GenerationOptions, 'model' | 'seed'> = {},
+): Promise<OperationResponse> {
+  const apiKey = getApiKey();
+  const body: Record<string, unknown> = {
+    display_name: displayName,
+    world_prompt: {
+      type: 'text',
+      text_prompt: textPrompt,
+    },
+    model: options.model ?? 'Marble 0.1-mini',
+  };
+  if (options.seed != null) {
+    body.seed = options.seed;
+  }
+  const res = await fetch(`${BASE_URL}/marble/v1/worlds:generate`, {
+    method: 'POST',
+    headers: headers(apiKey),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -160,7 +210,6 @@ export async function getWorld(worldId: string): Promise<WorldResponse> {
 // --- Orchestrator ---
 
 const POLL_INTERVAL_MS = 5000;
-const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface GenerationCallbacks {
   onUploading?: () => void;
@@ -170,13 +219,45 @@ export interface GenerationCallbacks {
   onError?: (error: string) => void;
 }
 
+async function pollUntilDone(
+  operationId: string,
+  timeoutMs: number,
+  callbacks?: Pick<GenerationCallbacks, 'onPolling' | 'onSuccess'>,
+): Promise<WorldResponse> {
+  callbacks?.onPolling?.();
+  const startTime = Date.now();
+
+  while (true) {
+    if (Date.now() - startTime > timeoutMs) {
+      throw new Error(`World generation timed out after ${Math.round(timeoutMs / 60000)} minutes`);
+    }
+
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const status = await pollOperation(operationId);
+
+    if (status.error) {
+      throw new Error(`Generation failed: ${status.error.message}`);
+    }
+
+    if (status.done && status.response) {
+      callbacks?.onSuccess?.(status.response);
+      return status.response;
+    }
+  }
+}
+
+function getTimeoutMs(model?: string): number {
+  return model === 'Marble 0.1-plus' ? 10 * 60 * 1000 : 5 * 60 * 1000;
+}
+
 export async function uploadAndGenerate(
-  slots: { file: File; azimuth: number }[],
+  slots: { file: File; azimuth: number | null }[],
   callbacks?: GenerationCallbacks,
+  options?: GenerationOptions,
 ): Promise<WorldResponse> {
   // Step 1: Upload all images
   callbacks?.onUploading?.();
-  const mediaAssets: { mediaAssetId: string; azimuth: number }[] = [];
+  const mediaAssets: { mediaAssetId: string; azimuth: number | null }[] = [];
 
   for (const slot of slots) {
     const prepared = await prepareUpload(slot.file);
@@ -193,27 +274,18 @@ export async function uploadAndGenerate(
 
   // Step 2: Generate world
   callbacks?.onGenerating?.();
-  const operation = await generateWorld(mediaAssets);
+  const operation = await generateWorld(mediaAssets, undefined, options);
 
   // Step 3: Poll until done
-  callbacks?.onPolling?.();
-  const startTime = Date.now();
+  return pollUntilDone(operation.operation_id, getTimeoutMs(options?.model), callbacks);
+}
 
-  while (true) {
-    if (Date.now() - startTime > POLL_TIMEOUT_MS) {
-      throw new Error('World generation timed out after 5 minutes');
-    }
-
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    const status = await pollOperation(operation.operation_id);
-
-    if (status.error) {
-      throw new Error(`Generation failed: ${status.error.message}`);
-    }
-
-    if (status.done && status.response) {
-      callbacks?.onSuccess?.(status.response);
-      return status.response;
-    }
-  }
+export async function generateFromText(
+  textPrompt: string,
+  callbacks?: GenerationCallbacks,
+  options?: Pick<GenerationOptions, 'model' | 'seed'>,
+): Promise<WorldResponse> {
+  callbacks?.onGenerating?.();
+  const operation = await generateWorldFromText(textPrompt, undefined, options);
+  return pollUntilDone(operation.operation_id, getTimeoutMs(options?.model), callbacks);
 }
