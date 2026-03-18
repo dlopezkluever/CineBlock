@@ -5,11 +5,13 @@ import type CameraControlsImpl from 'camera-controls';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
 import MarbleWorld from '../components/MarbleWorld';
 import { MannequinScene, MannequinOverlay } from '../components/Mannequins';
+import { LightScene, LightPlacementHelper } from '../components/Lights';
 import * as THREE from 'three';
 
-import type { AspectRatioKey } from '../types';
-import { ASPECT_RATIOS, DEFAULT_BODY_PARAMS, DEFAULT_POSE } from '../types';
-import { clampToSurface } from '../utils/surfaceClamp';
+import type { AspectRatioKey, PropShape, LightType } from '../types';
+import { ASPECT_RATIOS, DEFAULT_BODY_PARAMS, DEFAULT_POSE, PROP_SHAPES, PROP_SHAPE_DEFAULTS, DEFAULT_LIGHT, DEFAULT_SCENE_LIGHTING } from '../types';
+import { kelvinToColor } from '../utils/kelvinToColor';
+import { clampToSurface, computeFeetOffset } from '../utils/surfaceClamp';
 
 // --- Constants ---
 
@@ -147,12 +149,15 @@ export default function StudioView({
   const viewfinderRef = useRef<HTMLDivElement>(null);
   const cameraResetRef = useRef<(() => void) | null>(null);
   const orbitControlsRef = useRef<CameraControlsImpl | null>(null);
+  const overlaySceneRef = useRef<THREE.Scene | null>(null);
   const prevShotIndexRef = useRef(state.activeShotIndex);
 
   // Existing UI state
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [placingAssetId, setPlacingAssetId] = useState<string | null>(null);
+  const [selectedLightId, setSelectedLightId] = useState<string | null>(null);
+  const [placingLight, setPlacingLight] = useState(false);
 
   // Phase 6 UI state
   const [showGrid, setShowGrid] = useState(true);
@@ -176,6 +181,20 @@ export default function StudioView({
   const activePlacements = activeShot
     ? state.mannequinPlacements.filter((m) => m.shotId === activeShot.id)
     : [];
+  const activeLights = activeShot
+    ? state.lightPlacements.filter((l) => l.shotId === activeShot.id)
+    : [];
+  const selectedLight = selectedLightId ? activeLights.find((l) => l.id === selectedLightId) ?? null : null;
+
+  // Mutual exclusion helpers
+  const selectAsset = useCallback((id: string | null) => {
+    setSelectedAssetId(id);
+    if (id) setSelectedLightId(null);
+  }, []);
+  const selectLight = useCallback((id: string | null) => {
+    setSelectedLightId(id);
+    if (id) setSelectedAssetId(null);
+  }, []);
 
   // Viewfinder sizing: use width-based for ultra-wide, height-based otherwise
   const viewfinderStyle: React.CSSProperties = {
@@ -202,6 +221,8 @@ export default function StudioView({
       prevShotIndexRef.current = state.activeShotIndex;
       setSelectedAssetId(null);
       setPlacingAssetId(null);
+      setSelectedLightId(null);
+      setPlacingLight(false);
       if (activeShot) {
         const visibility: Record<string, boolean> = {};
         state.assets.forEach((a) => {
@@ -215,28 +236,64 @@ export default function StudioView({
     }
   }, [state.activeShotIndex, activeShot, state.assets, state.mannequinPlacements, dispatch]);
 
-  // Mannequin placement
+  // Mannequin placement — use the camera raycast hit point directly.
+  // No second vertical raycast: on a rotated collider the vertical re-ray
+  // can hit a different triangle and produce wrong Y values.
   const handlePlace = useCallback(
     (point: [number, number, number]) => {
       if (!placingAssetId || !activeShot) return;
+      const placingAsset = state.assets.find((a) => a.id === placingAssetId);
+      const shape: PropShape = placingAsset?.shape ?? 'box';
+      const defaultScale = placingAsset?.type === 'prop' ? PROP_SHAPE_DEFAULTS[shape] : [1, 1, 1] as [number, number, number];
+
+      const finalPos: [number, number, number] = [...point];
+      if (placingAsset?.type === 'character') {
+        finalPos[1] += computeFeetOffset(DEFAULT_BODY_PARAMS.height, DEFAULT_BODY_PARAMS.build);
+      }
+
       dispatch({
         type: 'ADD_MANNEQUIN',
         placement: {
           assetId: placingAssetId,
           shotId: activeShot.id,
-          position: point,
+          position: finalPos,
           rotation: [0, 0, 0],
-          scale: [1, 1, 1],
+          scale: defaultScale,
         },
       });
       setPlacingAssetId(null);
     },
-    [placingAssetId, activeShot, dispatch],
+    [placingAssetId, activeShot, state.assets, dispatch],
   );
 
   const handleCancelPlace = useCallback(() => {
     setPlacingAssetId(null);
   }, []);
+
+  // Light placement
+  const handleLightPlace = useCallback(
+    (point: [number, number, number]) => {
+      if (!activeShot) return;
+      dispatch({
+        type: 'ADD_LIGHT',
+        light: {
+          ...DEFAULT_LIGHT,
+          id: crypto.randomUUID(),
+          shotId: activeShot.id,
+          position: point,
+        },
+      });
+      setPlacingLight(false);
+    },
+    [activeShot, dispatch],
+  );
+
+  const handleLightTransformEnd = useCallback(
+    (id: string, shotId: string, pos: [number, number, number], rot: [number, number, number]) => {
+      dispatch({ type: 'UPDATE_LIGHT', id, shotId, updates: { position: pos, rotation: rot } });
+    },
+    [dispatch],
+  );
 
   const handleTransformEnd = useCallback(
     (
@@ -246,13 +303,19 @@ export default function StudioView({
       rot: [number, number, number],
       scl: [number, number, number],
     ) => {
-      // Surface clamp for character assets
       const asset = state.assets.find((a) => a.id === assetId);
       let finalPos = pos;
       if (asset?.type === 'character') {
-        const clamped = clampToSurface(pos, colliderRef);
+        // Use actual body params for this character's placement
+        const placement = state.mannequinPlacements.find(
+          (m) => m.assetId === assetId && m.shotId === shotId,
+        );
+        const bp = placement?.bodyParams ?? DEFAULT_BODY_PARAMS;
+        const feetOffset = computeFeetOffset(bp.height, bp.build);
+        const clamped = clampToSurface(pos, colliderRef, feetOffset);
         if (clamped) finalPos = clamped;
       }
+      // Props: no clamping — user can freely position them
       dispatch({
         type: 'UPDATE_MANNEQUIN',
         assetId,
@@ -262,7 +325,7 @@ export default function StudioView({
         scale: scl,
       });
     },
-    [dispatch, state.assets, colliderRef],
+    [dispatch, state.assets, state.mannequinPlacements, colliderRef],
   );
 
 
@@ -286,7 +349,21 @@ export default function StudioView({
     const cropW = vfRect.width * scaleX;
     const cropH = vfRect.height * scaleY;
 
+    // Hide light helper visuals before capture
+    const hiddenHelpers: THREE.Object3D[] = [];
+    if (overlaySceneRef.current) {
+      overlaySceneRef.current.traverse((obj) => {
+        if (obj.userData.isLightHelper && obj.visible) {
+          obj.visible = false;
+          hiddenHelpers.push(obj);
+        }
+      });
+    }
+
     const fullDataUrl = canvas.toDataURL('image/png');
+
+    // Restore light helpers
+    hiddenHelpers.forEach((obj) => { obj.visible = true; });
     const img = new Image();
     img.onload = () => {
       const offscreen = document.createElement('canvas');
@@ -362,6 +439,22 @@ export default function StudioView({
         case 'H':
           dispatch({ type: 'SET_ROLL_ANGLE', angle: 0 });
           break;
+        case 't':
+        case 'T':
+          if (selectedAssetId && activeShot) {
+            const placement = activePlacements.find((m) => m.assetId === selectedAssetId);
+            if (placement) {
+              dispatch({
+                type: 'UPDATE_MANNEQUIN',
+                assetId: selectedAssetId,
+                shotId: activeShot.id,
+                position: placement.position,
+                rotation: [0, 0, 0],
+                scale: placement.scale,
+              });
+            }
+          }
+          break;
         case 'Escape':
           if (lightboxUrl) {
             setLightboxUrl(null);
@@ -369,17 +462,25 @@ export default function StudioView({
             setShowControls(false);
           } else if (showSettings) {
             setShowSettings(false);
+          } else if (placingLight) {
+            setPlacingLight(false);
           } else if (placingAssetId) {
             setPlacingAssetId(null);
+          } else if (selectedLightId) {
+            setSelectedLightId(null);
           } else {
             setSelectedAssetId(null);
           }
+          break;
+        case 'l':
+        case 'L':
+          dispatch({ type: 'SET_LIGHTING_MODE', enabled: !state.lightingModeEnabled });
           break;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleCapture, lightboxUrl, showControls, showSettings, placingAssetId, dispatch]);
+  }, [handleCapture, lightboxUrl, showControls, showSettings, placingLight, placingAssetId, selectedLightId, dispatch, selectedAssetId, activeShot, activePlacements, state.lightingModeEnabled]);
 
   // --- Render ---
 
@@ -421,7 +522,12 @@ export default function StudioView({
           <span className="text-sm font-medium text-zinc-300">Studio</span>
           {placingAssetId && (
             <span className="text-amber-400 text-xs animate-pulse">
-              Click to place &middot; Esc to cancel
+              Click to place asset &middot; Esc to cancel
+            </span>
+          )}
+          {placingLight && (
+            <span className="text-amber-400 text-xs animate-pulse">
+              Click to place light &middot; Esc to cancel
             </span>
           )}
         </div>
@@ -468,11 +574,14 @@ export default function StudioView({
               glRef.current = gl;
             }}
             onPointerMissed={() => {
-              if (!placingAssetId) setSelectedAssetId(null);
+              if (!placingAssetId && !placingLight) {
+                setSelectedAssetId(null);
+                setSelectedLightId(null);
+              }
             }}
           >
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[5, 5, 5]} intensity={1} />
+            <ambientLight intensity={state.sceneLighting.ambientIntensity} />
+            <directionalLight position={[5, 5, 5]} intensity={state.sceneLighting.directionalIntensity} />
 
             {hasWorld ? (
               <MarbleWorld
@@ -488,22 +597,39 @@ export default function StudioView({
               </>
             )}
 
-            <MannequinOverlay>
-              <ambientLight intensity={0.5} />
-              <directionalLight position={[5, 5, 5]} intensity={1} />
+            <MannequinOverlay occlude={state.mannequinOcclusion} overlaySceneRef={overlaySceneRef}>
+              <ambientLight intensity={state.sceneLighting.ambientIntensity} />
+              <directionalLight position={[5, 5, 5]} intensity={state.sceneLighting.directionalIntensity} />
               <MannequinScene
                 assets={state.assets}
                 placements={activePlacements}
                 visibility={state.assetVisibility}
                 selectedAssetId={selectedAssetId}
-                onSelect={setSelectedAssetId}
+                onSelect={selectAsset}
                 onTransformEnd={handleTransformEnd}
                 colliderRef={colliderRef}
                 placingAssetId={placingAssetId}
                 onPlace={handlePlace}
                 onCancelPlace={handleCancelPlace}
                 orbitControlsRef={orbitControlsRef as React.RefObject<THREE.EventDispatcher | null>}
+                occlude={state.mannequinOcclusion}
               />
+              {state.lightingModeEnabled && (
+                <LightScene
+                  lights={activeLights}
+                  selectedLightId={selectedLightId}
+                  onSelect={selectLight}
+                  onTransformEnd={handleLightTransformEnd}
+                  orbitControlsRef={orbitControlsRef as React.RefObject<THREE.EventDispatcher | null>}
+                />
+              )}
+              {placingLight && (
+                <LightPlacementHelper
+                  colliderRef={colliderRef}
+                  onPlace={handleLightPlace}
+                  onCancel={() => setPlacingLight(false)}
+                />
+              )}
             </MannequinOverlay>
 
             <SceneControls resetRef={cameraResetRef} controlsRef={orbitControlsRef} />
@@ -683,6 +809,25 @@ export default function StudioView({
               </svg>
             </button>
 
+            <div className="w-px h-5 bg-zinc-700/50" />
+
+            {/* Lighting Toggle */}
+            <button
+              onClick={() => dispatch({ type: 'SET_LIGHTING_MODE', enabled: !state.lightingModeEnabled })}
+              className={`p-1.5 rounded-full transition-colors ${
+                state.lightingModeEnabled
+                  ? 'bg-amber-900/30 text-amber-400'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+              title="Custom Lighting (L)"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18h6" />
+                <path d="M10 22h4" />
+                <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />
+              </svg>
+            </button>
+
             {/* Settings */}
             <div className="relative">
               <button
@@ -752,6 +897,21 @@ export default function StudioView({
                     </button>
                   </div>
 
+                  {/* World Occlusion toggle */}
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs text-zinc-400">World Occlusion</span>
+                    <button
+                      onClick={() => dispatch({ type: 'SET_MANNEQUIN_OCCLUSION', enabled: !state.mannequinOcclusion })}
+                      className={`px-3 py-1 rounded-full text-[10px] font-medium transition-colors ${
+                        state.mannequinOcclusion
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {state.mannequinOcclusion ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
                   {/* Keyboard shortcuts reference */}
                   <div className="pt-3 border-t border-zinc-700/50">
                     <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2 block">
@@ -804,6 +964,18 @@ export default function StudioView({
                         <span>Scale</span>
                         <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
                           E
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Reset rotation</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          T
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Lighting toggle</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          L
                         </kbd>
                       </div>
                       <div className="flex justify-between">
@@ -1018,10 +1190,119 @@ export default function StudioView({
             </div>
           )}
 
+          {/* Section — Scene Lighting */}
+          {activeShot && (
+            <div className="p-4 border-b border-zinc-700/50">
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                Scene Lighting
+              </h3>
+              <div className="space-y-2">
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-zinc-400">Ambient</label>
+                    <span className="text-[10px] font-mono text-zinc-500">{Math.round(state.sceneLighting.ambientIntensity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={state.sceneLighting.ambientIntensity}
+                    onChange={(e) => dispatch({ type: 'SET_SCENE_LIGHTING', lighting: { ambientIntensity: parseFloat(e.target.value) } })}
+                    className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-zinc-400">Directional</label>
+                    <span className="text-[10px] font-mono text-zinc-500">{Math.round(state.sceneLighting.directionalIntensity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={state.sceneLighting.directionalIntensity}
+                    onChange={(e) => dispatch({ type: 'SET_SCENE_LIGHTING', lighting: { directionalIntensity: parseFloat(e.target.value) } })}
+                    className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Custom lights list + add button */}
+              <div className="mt-3 pt-3 border-t border-zinc-700/30">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-zinc-400">Custom Lights</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => dispatch({ type: 'SET_LIGHTING_MODE', enabled: !state.lightingModeEnabled })}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+                        state.lightingModeEnabled
+                          ? 'bg-amber-600/30 text-amber-300'
+                          : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                      title={state.lightingModeEnabled ? 'Custom lights visible' : 'Custom lights hidden'}
+                    >
+                      {state.lightingModeEnabled ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { setPlacingLight(!placingLight); setPlacingAssetId(null); }}
+                  className={`w-full text-[10px] px-2 py-1.5 rounded transition-colors mb-2 ${
+                    placingLight
+                      ? 'bg-amber-600/30 text-amber-300 border border-amber-500/30'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                  }`}
+                >
+                  {placingLight ? 'Placing light...' : '+ Add Light'}
+                </button>
+
+                {activeLights.length > 0 && (
+                  <div className="space-y-1">
+                    {activeLights.map((light, i) => (
+                      <div
+                        key={light.id}
+                        className={`flex items-center gap-2 p-1.5 rounded text-xs cursor-pointer ${
+                          selectedLightId === light.id
+                            ? 'bg-zinc-700/50 border border-zinc-600'
+                            : 'border border-transparent hover:bg-zinc-800/50'
+                        }`}
+                        onClick={() => selectLight(light.id)}
+                      >
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: kelvinToColor(light.kelvin) }}
+                        />
+                        <span className="flex-1 text-zinc-300 truncate">
+                          {light.lightType === 'spot' ? 'Spot' : 'Point'} {i + 1}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-mono">{light.kelvin}K</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch({ type: 'REMOVE_LIGHT', id: light.id, shotId: light.shotId });
+                            if (selectedLightId === light.id) setSelectedLightId(null);
+                          }}
+                          className="text-zinc-600 hover:text-red-400 transition-colors text-[10px]"
+                          title="Remove light"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Section 3b — Mannequin Controls (when a character is selected) */}
           {activeShot && selectedAssetId && (() => {
             const selectedAsset = state.assets.find((a) => a.id === selectedAssetId);
-            if (!selectedAsset || selectedAsset.type !== 'character') return null;
+            if (!selectedAsset) return null;
+            if (selectedAsset.type !== 'character') return null;
             const placement = activePlacements.find((m) => m.assetId === selectedAssetId);
             if (!placement) return null;
             const bp = placement.bodyParams ?? DEFAULT_BODY_PARAMS;
@@ -1089,8 +1370,8 @@ export default function StudioView({
                     </div>
                     <input
                       type="range"
-                      min="0.5"
-                      max="2.5"
+                      min="0.1"
+                      max="5.0"
                       step="0.01"
                       value={bp.height}
                       onChange={(e) => {
@@ -1101,7 +1382,8 @@ export default function StudioView({
                           shotId: activeShot.id,
                           bodyParams: { height },
                         });
-                        const clamped = clampToSurface(placement.position, colliderRef);
+                        const feetOffset = computeFeetOffset(height, bp.build);
+                        const clamped = clampToSurface(placement.position, colliderRef, feetOffset);
                         if (clamped) {
                           dispatch({
                             type: 'UPDATE_MANNEQUIN',
@@ -1121,8 +1403,8 @@ export default function StudioView({
                     </div>
                     <input
                       type="range"
-                      min="0.5"
-                      max="2.0"
+                      min="0.1"
+                      max="4.0"
                       step="0.01"
                       value={bp.build}
                       onChange={(e) => {
@@ -1136,6 +1418,30 @@ export default function StudioView({
                       }}
                       className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
                     />
+                  </div>
+                </div>
+
+                {/* Rotation — divider */}
+                <div className="border-t border-zinc-700/50 pt-3 mb-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Rotation</span>
+                    <button
+                      onClick={() => {
+                        const placement = activePlacements.find((m) => m.assetId === selectedAssetId);
+                        if (!placement) return;
+                        dispatch({
+                          type: 'UPDATE_MANNEQUIN',
+                          assetId: selectedAssetId,
+                          shotId: activeShot.id,
+                          position: placement.position,
+                          rotation: [0, 0, 0],
+                          scale: placement.scale,
+                        });
+                      }}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+                    >
+                      Reset
+                    </button>
                   </div>
                 </div>
 
@@ -1192,6 +1498,241 @@ export default function StudioView({
             );
           })()}
 
+          {/* Section 3c — Prop Controls (when a prop is selected) */}
+          {activeShot && selectedAssetId && (() => {
+            const selectedAsset = state.assets.find((a) => a.id === selectedAssetId);
+            if (!selectedAsset || selectedAsset.type !== 'prop') return null;
+            const placement = activePlacements.find((m) => m.assetId === selectedAssetId);
+            if (!placement) return null;
+            const scaleX = placement.scale[0];
+            const scaleY = placement.scale[1];
+
+            return (
+              <div className="p-4 border-b border-zinc-700/50">
+                <div className="mb-3">
+                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Shape</h3>
+                  <select
+                    value={selectedAsset.shape ?? 'box'}
+                    onChange={(e) => {
+                      const newShape = e.target.value as PropShape;
+                      dispatch({ type: 'UPDATE_ASSET', id: selectedAsset.id, field: 'shape', value: newShape });
+                      dispatch({
+                        type: 'UPDATE_MANNEQUIN',
+                        assetId: selectedAssetId,
+                        shotId: activeShot.id,
+                        scale: PROP_SHAPE_DEFAULTS[newShape],
+                      });
+                    }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1.5 outline-none focus:border-blue-500"
+                  >
+                    {PROP_SHAPES.map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                  Prop Scale
+                </h3>
+                <div className="space-y-2">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-zinc-400">Width</label>
+                      <span className="text-[10px] font-mono text-zinc-500">{scaleX.toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="5.0"
+                      step="0.01"
+                      value={scaleX}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        dispatch({
+                          type: 'UPDATE_MANNEQUIN',
+                          assetId: selectedAssetId,
+                          shotId: activeShot.id,
+                          scale: [v, placement.scale[1], v],
+                        });
+                      }}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-zinc-400">Height</label>
+                      <span className="text-[10px] font-mono text-zinc-500">{scaleY.toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="5.0"
+                      step="0.01"
+                      value={scaleY}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        dispatch({
+                          type: 'UPDATE_MANNEQUIN',
+                          assetId: selectedAssetId,
+                          shotId: activeShot.id,
+                          scale: [placement.scale[0], v, placement.scale[2]],
+                        });
+                      }}
+                      className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Section — Light Controls (when a light is selected) */}
+          {activeShot && selectedLight && (
+            <div className="p-4 border-b border-zinc-700/50">
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+                Light Controls
+              </h3>
+              <div className="space-y-2">
+                {/* Type toggle */}
+                <div>
+                  <label className="text-[10px] text-zinc-400 mb-1 block">Type</label>
+                  <div className="flex items-center bg-zinc-800 rounded-full overflow-hidden text-xs">
+                    {(['point', 'spot'] as LightType[]).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { lightType: t } })}
+                        className={`flex-1 px-3 py-1.5 transition-colors capitalize ${
+                          selectedLight.lightType === t
+                            ? 'bg-blue-600 text-white'
+                            : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Kelvin */}
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-zinc-400">Temperature</label>
+                    <span className="text-[10px] font-mono text-zinc-500">{selectedLight.kelvin}K</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="2000"
+                    max="10000"
+                    step="100"
+                    value={selectedLight.kelvin}
+                    onChange={(e) => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { kelvin: parseInt(e.target.value) } })}
+                    className="w-full h-1 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    style={{
+                      background: 'linear-gradient(to right, #ff8a00, #ffd4a0, #fff5eb, #e8eeff, #a0c4ff)',
+                    }}
+                  />
+                </div>
+
+                {/* Tint color */}
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-zinc-400">Tint Color</label>
+                  <input
+                    type="color"
+                    value={selectedLight.tintColor}
+                    onChange={(e) => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { tintColor: e.target.value } })}
+                    className="w-6 h-6 rounded cursor-pointer border border-zinc-700 bg-transparent"
+                  />
+                </div>
+
+                {/* Intensity */}
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-zinc-400">Intensity</label>
+                    <span className="text-[10px] font-mono text-zinc-500">{selectedLight.intensity.toFixed(1)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={selectedLight.intensity}
+                    onChange={(e) => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { intensity: parseFloat(e.target.value) } })}
+                    className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                  />
+                </div>
+
+                {/* Distance */}
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-zinc-400">Distance</label>
+                    <span className="text-[10px] font-mono text-zinc-500">{selectedLight.distance.toFixed(0)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="50"
+                    step="1"
+                    value={selectedLight.distance}
+                    onChange={(e) => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { distance: parseInt(e.target.value) } })}
+                    className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                  />
+                </div>
+
+                {/* Spot-only controls */}
+                {selectedLight.lightType === 'spot' && (
+                  <>
+                    <div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <label className="text-[10px] text-zinc-400">Cone Angle</label>
+                        <span className="text-[10px] font-mono text-zinc-500">{Math.round(selectedLight.coneAngle * 180 / Math.PI)}&deg;</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={5 * Math.PI / 180}
+                        max={90 * Math.PI / 180}
+                        step="0.01"
+                        value={selectedLight.coneAngle}
+                        onChange={(e) => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { coneAngle: parseFloat(e.target.value) } })}
+                        className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <label className="text-[10px] text-zinc-400">Penumbra</label>
+                        <span className="text-[10px] font-mono text-zinc-500">{selectedLight.penumbra.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={selectedLight.penumbra}
+                        onChange={(e) => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { penumbra: parseFloat(e.target.value) } })}
+                        className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                      />
+                    </div>
+                    <button
+                      onClick={() => dispatch({ type: 'UPDATE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId, updates: { rotation: [-Math.PI / 2, 0, 0] } })}
+                      className="w-full text-[10px] px-2 py-1 rounded bg-zinc-800 text-zinc-400 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+                    >
+                      Reset Aim
+                    </button>
+                  </>
+                )}
+
+                {/* Delete */}
+                <button
+                  onClick={() => {
+                    dispatch({ type: 'REMOVE_LIGHT', id: selectedLight.id, shotId: selectedLight.shotId });
+                    setSelectedLightId(null);
+                  }}
+                  className="w-full text-[10px] px-2 py-1.5 rounded bg-red-900/30 text-red-400 hover:bg-red-900/50 transition-colors mt-1"
+                >
+                  Delete Light
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Section 4 — Aspect Ratio */}
           <div className="p-4 border-b border-zinc-700/50">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
@@ -1234,8 +1775,8 @@ export default function StudioView({
             </h3>
             <input
               type="range"
-              min={-45}
-              max={45}
+              min={-90}
+              max={90}
               step={1}
               value={state.rollAngle}
               onChange={(e) =>
@@ -1405,6 +1946,7 @@ export default function StudioView({
                   ['2', 'Switch to End Frame'],
                   ['G', 'Move selected asset'],
                   ['R', 'Rotate selected asset'],
+                  ['L', 'Toggle custom lighting'],
                   ['Esc', 'Cancel / Close / Deselect'],
                 ].map(([key, desc]) => (
                   <div key={key} className="flex items-center justify-between">
