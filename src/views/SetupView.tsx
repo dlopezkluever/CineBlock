@@ -3,7 +3,7 @@ import { useCineBlockState, useCineBlockDispatch } from '../store';
 import { uploadAndGenerate, generateFromText, uploadVideoAndGenerate, uploadImageAndGenerate } from '../services/marbleApi';
 import { composeScenePrompt } from '../utils/composeScenePrompt';
 import type { AzimuthSlot, CineBlockShot, AspectRatioKey, InputMode, ImageDimensions } from '../types';
-import { ASPECT_RATIOS } from '../types';
+import { ASPECT_RATIOS, PROP_SHAPES } from '../types';
 
 const ASSET_COLORS = ['#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444', '#F59E0B', '#EC4899', '#06B6D4'];
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -583,7 +583,7 @@ function AdvancedSettingsPanel() {
 
 // ─── Asset Row ───────────────────────────────────────────────────────────────
 
-function AssetRow({ asset, isReferenced }: { asset: { id: string; name: string; type: 'character' | 'prop'; description: string; color: string }; isReferenced: boolean }) {
+function AssetRow({ asset, isReferenced }: { asset: { id: string; name: string; type: 'character' | 'prop'; shape?: string; description: string; color: string }; isReferenced: boolean }) {
   const dispatch = useCineBlockDispatch();
 
   const handleRemove = () => {
@@ -614,6 +614,19 @@ function AssetRow({ asset, isReferenced }: { asset: { id: string; name: string; 
         <option value="character">Character</option>
         <option value="prop">Prop</option>
       </select>
+
+      {/* Shape (props only) */}
+      {asset.type === 'prop' && (
+        <select
+          value={asset.shape ?? 'box'}
+          onChange={(e) => dispatch({ type: 'UPDATE_ASSET', id: asset.id, field: 'shape', value: e.target.value })}
+          className="bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 px-2 py-1 outline-none focus:border-blue-500"
+        >
+          {PROP_SHAPES.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+      )}
 
       {/* Description */}
       <input
