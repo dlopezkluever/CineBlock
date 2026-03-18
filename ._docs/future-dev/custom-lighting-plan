@@ -1,0 +1,333 @@
+# Custom Lighting System — Implementation Plan
+
+## Context
+
+CineBlock's StudioView has hardcoded `ambientLight` (0.5) and `directionalLight` (1.0) with no user control. This plan adds a full custom lighting system: placeable point/spot lights with temperature, tint, intensity, and range controls — plus master sliders for the existing scene lights. Lights are per-shot with copy-on-switch, togglable via a toolbar button, and their helper visuals are hidden during captures.
+
+---
+
+## Files to Modify/Create
+
+| File | Action |
+|------|--------|
+| `src/types.ts` | Add `LightPlacement`, `SceneLighting` types + defaults; extend `CineBlockState` |
+| `src/store.tsx` | Add 5 action types, 5 reducer cases, modify `SET_ACTIVE_SHOT` + `REMOVE_SHOT` |
+| `src/utils/kelvinToColor.ts` | **New** — Kelvin-to-RGB conversion + color blend utility |
+| `src/components/Lights.tsx` | **New** — `LightObject`, `LightScene`, `LightPlacementHelper` components |
+| `src/views/StudioView.tsx` | Wire lighting into Canvas, sidebar, toolbar, capture pipeline |
+| `src/components/Mannequins.tsx` | Expose `overlayScene` via ref from `MannequinOverlay` for capture helper hiding |
+
+---
+
+## Step 1: Types (`src/types.ts`)
+
+Add after `MannequinPlacement` interface (~line 150):
+
+```typescript
+export type LightType = 'point' | 'spot';
+
+export interface LightPlacement {
+  id: string;
+  shotId: string;
+  lightType: LightType;
+  position: [number, number, number];
+  rotation: [number, number, number];   // Euler — controls spot aim
+  kelvin: number;                        // 2000–10000
+  tintColor: string;                     // hex '#ffffff'
+  intensity: number;                     // 0–10
+  distance: number;                      // range, 0 = infinite
+  coneAngle: number;                     // radians, spot only
+  penumbra: number;                      // 0–1, spot only
+}
+
+export interface SceneLighting {
+  ambientIntensity: number;              // 0–1
+  directionalIntensity: number;          // 0–1
+}
+
+export const DEFAULT_SCENE_LIGHTING: SceneLighting = {
+  ambientIntensity: 0.5,
+  directionalIntensity: 1.0,
+};
+
+export const DEFAULT_LIGHT: Omit<LightPlacement, 'id' | 'shotId'> = {
+  lightType: 'spot',
+  position: [0, 2, 0],
+  rotation: [-Math.PI / 2, 0, 0],       // pointing down
+  kelvin: 5500,
+  tintColor: '#ffffff',
+  intensity: 1.0,
+  distance: 10,
+  coneAngle: Math.PI / 6,
+  penumbra: 0.5,
+};
+```
+
+Extend `CineBlockState` with 3 new fields:
+```
+lightPlacements: LightPlacement[];
+sceneLighting: SceneLighting;
+lightingModeEnabled: boolean;
+```
+
+---
+
+## Step 2: Utility (`src/utils/kelvinToColor.ts`) — NEW FILE
+
+- `kelvinToColor(kelvin: number): string` — Tanner Helland algorithm, ~20 lines, returns `#rrggbb`
+- `blendKelvinWithTint(kelvin: number, tintHex: string): THREE.Color` — multiplies Kelvin RGB with tint RGB for gel effect
+
+---
+
+## Step 3: Store (`src/store.tsx`)
+
+### New actions (add to `Action` union):
+```
+| { type: 'ADD_LIGHT'; light: LightPlacement }
+| { type: 'UPDATE_LIGHT'; id: string; shotId: string; updates: Partial<Omit<LightPlacement, 'id' | 'shotId'>> }
+| { type: 'REMOVE_LIGHT'; id: string; shotId: string }
+| { type: 'SET_SCENE_LIGHTING'; lighting: Partial<SceneLighting> }
+| { type: 'SET_LIGHTING_MODE'; enabled: boolean }
+```
+
+### New reducer cases:
+- `ADD_LIGHT` — append to `lightPlacements` (same pattern as `ADD_MANNEQUIN`, line 198)
+- `UPDATE_LIGHT` — map + match by `id + shotId`, spread partial updates
+- `REMOVE_LIGHT` — filter by `id + shotId`
+- `SET_SCENE_LIGHTING` — merge partial into `sceneLighting`
+- `SET_LIGHTING_MODE` — set boolean
+
+### Modify existing cases:
+
+**`SET_ACTIVE_SHOT` (line 180)** — Add copy-on-switch logic:
+```typescript
+case 'SET_ACTIVE_SHOT': {
+  const prevShot = state.shots[state.activeShotIndex];
+  const nextShot = state.shots[action.index];
+  let newLights = state.lightPlacements;
+
+  if (prevShot && nextShot && prevShot.id !== nextShot.id) {
+    const nextHasLights = state.lightPlacements.some(l => l.shotId === nextShot.id);
+    if (!nextHasLights) {
+      const cloned = state.lightPlacements
+        .filter(l => l.shotId === prevShot.id)
+        .map(l => ({ ...l, id: crypto.randomUUID(), shotId: nextShot.id }));
+      newLights = [...state.lightPlacements, ...cloned];
+    }
+  }
+  return { ...state, activeShotIndex: action.index, lightPlacements: newLights };
+}
+```
+
+**`REMOVE_SHOT` (line 149)** — Also filter out `lightPlacements` for removed shot.
+
+**`RESET` (line 316)** — Already returns `initialState` which will include new defaults.
+
+### Initial state additions:
+```
+lightPlacements: [],
+sceneLighting: DEFAULT_SCENE_LIGHTING,
+lightingModeEnabled: false,
+```
+
+---
+
+## Step 4: Light Components (`src/components/Lights.tsx`) — NEW FILE
+
+### `LightObject` component
+Props: `light: LightPlacement`, `isSelected`, `onSelect`, `onTransformEnd`, `orbitControlsRef`
+
+Renders:
+- `<group>` positioned/rotated per placement
+- Actual Three.js light (`<pointLight>` or `<spotLight>`) — color from `blendKelvinWithTint()`, with intensity/distance/angle/penumbra. **Always rendered** (even during capture) so light effects appear in screenshots
+- **Helper visuals** (marked with `userData.isLightHelper = true` for capture hiding):
+  - Small emissive sphere (~0.08r) as clickable handle, glowing with the light's computed color
+  - For spots: wireframe cone helper showing beam direction/width
+  - `<Html>` label showing light type + Kelvin
+- `TransformControls` gizmo when selected — reuse same `MannequinGizmo` pattern from `Mannequins.tsx` (lines 161-213): G/R for translate/rotate modes, disable orbit controls during drag
+
+### `LightScene` component
+Props: `lights`, `selectedLightId`, `onSelect`, `onTransformEnd`, `orbitControlsRef`
+
+- Maps `lights` array to `<LightObject>` components
+- Handles deselection via Escape key (same pattern as `MannequinScene` line 321)
+
+### `LightPlacementHelper` component
+Reuse the `PlacementRaycastHelper` pattern from `Mannequins.tsx` (lines 217-284) but for lights:
+- Raycast click against collider → place light at hit point + 1.5m above surface (lights float)
+- Fallback: 5 units forward from camera at current height
+- Crosshair cursor during placement
+- Escape to cancel
+
+---
+
+## Step 5: StudioView Integration (`src/views/StudioView.tsx`)
+
+### 5a. New state & derived values (~line 154)
+```typescript
+const [selectedLightId, setSelectedLightId] = useState<string | null>(null);
+const [placingLight, setPlacingLight] = useState(false);
+```
+
+Mutual exclusion helpers:
+```typescript
+const selectAsset = (id: string | null) => { setSelectedAssetId(id); if (id) setSelectedLightId(null); };
+const selectLight = (id: string | null) => { setSelectedLightId(id); if (id) setSelectedAssetId(null); };
+```
+
+Derived:
+```typescript
+const activeLights = activeShot ? state.lightPlacements.filter(l => l.shotId === activeShot.id) : [];
+const selectedLight = selectedLightId ? activeLights.find(l => l.id === selectedLightId) ?? null : null;
+```
+
+### 5b. Canvas lighting changes (lines 512-513, 530-531)
+Replace hardcoded intensities with `state.sceneLighting.ambientIntensity` / `state.sceneLighting.directionalIntensity` in both the main scene and the `MannequinOverlay`.
+
+### 5c. Add `LightScene` inside `MannequinOverlay` (after line 545)
+```jsx
+{state.lightingModeEnabled && (
+  <LightScene
+    lights={activeLights}
+    selectedLightId={selectedLightId}
+    onSelect={selectLight}
+    onTransformEnd={handleLightTransformEnd}
+    orbitControlsRef={orbitControlsRef}
+  />
+)}
+{placingLight && (
+  <LightPlacementHelper
+    colliderRef={colliderRef}
+    onPlace={handleLightPlace}
+    onCancel={() => setPlacingLight(false)}
+  />
+)}
+```
+
+### 5d. Light callbacks
+- `handleLightPlace` — dispatch `ADD_LIGHT` with `DEFAULT_LIGHT` spread + generated id/shotId/position, then `setPlacingLight(false)`
+- `handleLightTransformEnd` — dispatch `UPDATE_LIGHT` with position/rotation updates
+
+### 5e. Capture pipeline modification (~line 311)
+Before `toDataURL()`, traverse the overlay scene and hide objects with `userData.isLightHelper = true`. Restore after. Need `overlaySceneRef` from `MannequinOverlay`.
+
+### 5f. Escape key chain (line 403)
+Add `placingLight` and `selectedLightId` to the Escape hierarchy:
+```
+lightbox → controls → settings → placingLight → placingAsset → selectedLight → selectedAsset
+```
+
+### 5g. Top bar placement indicator (line 460)
+Extend to show "Click to place light" when `placingLight` is true.
+
+### 5h. `onPointerMissed` (line 508)
+Add `setSelectedLightId(null)` alongside existing `setSelectedAssetId(null)`.
+
+### 5i. Shot switch effect (line 200)
+Add `setSelectedLightId(null)` and `setPlacingLight(false)`.
+
+---
+
+## Step 6: Sidebar Sections
+
+### Scene Lighting section (always visible when shot active)
+**Position**: After Assets section (~line 1079), before mannequin/prop controls. This is a "scene-level" control that logically groups with assets.
+
+Contains:
+- **Ambient slider** (0–100%) — dispatches `SET_SCENE_LIGHTING`
+- **Directional slider** (0–100%) — dispatches `SET_SCENE_LIGHTING`
+- **"+ Add Light" button** — sets `placingLight = true` (amber highlight when active)
+- **Light list** — colored dot + "Spot/Point N" + Kelvin badge + delete (x) button per light. Click to select.
+- **Lighting mode toggle** — ON/OFF pill, toggles `lightingModeEnabled`. When turning OFF, show tooltip: "Custom lights will be hidden"
+- Collapsible via click on section header
+
+Styling: matches existing sections — `p-4 border-b border-zinc-700/50`, `text-xs font-semibold text-zinc-500 uppercase tracking-wider` headers.
+
+### Light Controls section (conditional — shown when light selected)
+**Position**: After prop controls, before aspect ratio section.
+
+Contains:
+- **Type toggle**: Point / Spot pill buttons (like Frame Start/End toggle)
+- **Kelvin slider**: 2000–10000, with gradient track (warm amber → daylight → cool blue)
+- **Color tint**: small `<input type="color">` picker
+- **Intensity slider**: 0–10
+- **Distance slider**: 1–50
+- **Cone angle** (spot only): 5°–90°
+- **Penumbra** (spot only): 0–1
+- **Reset aim button** (spot only): resets rotation to `[-PI/2, 0, 0]`
+- **Delete light button**: red, dispatches `REMOVE_LIGHT`
+
+Each slider follows existing pattern: flex row (label left, mono value right), range input below with `accent-blue-500`.
+
+---
+
+## Step 7: Toolbar Toggle
+
+Add a **lightbulb icon button** to the bottom floating toolbar (line 661), between Reset Camera and Settings:
+
+```
+... | Reset Camera | [Lighting Toggle] | Settings | Sidebar Toggle
+```
+
+- Amber highlight when ON (`bg-amber-900/30 text-amber-400`)
+- Zinc when OFF (`text-zinc-400`)
+- Dispatches `SET_LIGHTING_MODE`
+- Tooltip: "Custom Lighting (L)"
+- Add `L` keyboard shortcut to toggle
+
+Separated by `<div className="w-px h-5 bg-zinc-700/50" />` dividers.
+
+---
+
+## Step 8: MannequinOverlay Changes (`src/components/Mannequins.tsx`)
+
+Add optional `overlaySceneRef` prop to `MannequinOverlay` (line 388):
+```typescript
+overlaySceneRef?: React.RefObject<THREE.Scene | null>;
+```
+
+In the component, assign:
+```typescript
+useEffect(() => {
+  if (overlaySceneRef) overlaySceneRef.current = overlayScene;
+}, [overlayScene, overlaySceneRef]);
+```
+
+This lets StudioView traverse the overlay scene during capture to hide light helpers.
+
+---
+
+## Step 9: Edge Cases
+
+- **REMOVE_SHOT**: clean up `lightPlacements` for deleted shot
+- **No shots**: lighting section doesn't render (guard on `activeShot`)
+- **Lighting OFF + capture**: custom lights not rendered → captures use only scene lights
+- **Shot switch clears selection**: `selectedLightId` reset on shot change
+- **Light placement without collider**: fallback 5 units forward from camera, elevated 2m
+- **Spot aim**: rotation Euler on group; gizmo rotate mode adjusts aim direction
+
+---
+
+## Implementation Order
+
+1. `src/types.ts` — types + defaults (no behavioral change)
+2. `src/utils/kelvinToColor.ts` — pure utility
+3. `src/store.tsx` — actions, reducer, initial state
+4. `src/components/Mannequins.tsx` — add `overlaySceneRef` prop
+5. `src/components/Lights.tsx` — 3D light components
+6. `src/views/StudioView.tsx` — full integration (Canvas, sidebar, toolbar, capture)
+
+---
+
+## Verification
+
+1. **Toggle**: Click lighting toggle in toolbar → should show amber ON state. Toggle OFF → custom lights disappear, data preserved
+2. **Place light**: Click "+ Add Light" → crosshair cursor → click in viewport → glowing orb appears at click position
+3. **Select light**: Click orb → gizmo appears, sidebar shows light controls. Click empty space → deselects
+4. **Sliders**: Adjust Kelvin → orb color changes warm↔cool. Adjust intensity → light brightness changes. Adjust cone angle (spot) → cone helper updates
+5. **Type switch**: Toggle Point/Spot → light behavior and helpers update
+6. **Scene lighting**: Drag ambient slider to 0% → scene darkens. Drag directional to 0% → key light gone
+7. **Per-shot**: Switch shots → lights copy to new shot. Edit lights in shot 2 → switch back to shot 1 → shot 1 lights unchanged
+8. **Capture**: Press Space → captured image should show light *effects* but NOT the orb/helper meshes
+9. **Delete**: Click delete button or x in list → light removed
+10. **Keyboard**: L toggles lighting mode, Escape deselects light or cancels placement
