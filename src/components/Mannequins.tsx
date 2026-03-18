@@ -2,9 +2,10 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useThree, useFrame, createPortal } from '@react-three/fiber';
 import { Html, TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
-import type { MannequinPlacement, CineBlockAsset } from '../types';
+import type { MannequinPlacement, CineBlockAsset, PropShape } from '../types';
 import { DEFAULT_BODY_PARAMS } from '../types';
 import { ArticulatedMannequin } from './ArticulatedMannequin';
+import { ProceduralDog, ProceduralCat } from './ProceduralAnimals';
 
 // --- Character Mannequin: capsule body + sphere head ---
 
@@ -15,9 +16,10 @@ interface CharacterMannequinProps {
   onSelect: () => void;
   onTransformEnd: (pos: [number, number, number], rot: [number, number, number], scl: [number, number, number]) => void;
   orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
+  occlude?: boolean;
 }
 
-export function CharacterMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef }: CharacterMannequinProps) {
+export function CharacterMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef, occlude = false }: CharacterMannequinProps) {
   const groupRef = useRef<THREE.Group>(null!);
   const bp = placement.bodyParams ?? DEFAULT_BODY_PARAMS;
   const labelY = bp.height + 0.15;
@@ -42,6 +44,7 @@ export function CharacterMannequin({ asset, placement, isSelected, onSelect, onT
           color={asset.color}
           pose={placement.pose}
           bodyParams={placement.bodyParams}
+          occlude={occlude}
         />
         {/* Name label */}
         <Html position={[0, labelY, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
@@ -69,14 +72,58 @@ interface PropMannequinProps {
   onSelect: () => void;
   onTransformEnd: (pos: [number, number, number], rot: [number, number, number], scl: [number, number, number]) => void;
   orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
+  occlude?: boolean;
 }
 
-export function PropMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef }: PropMannequinProps) {
+export function PropMannequin({ asset, placement, isSelected, onSelect, onTransformEnd, orbitControlsRef, occlude = false }: PropMannequinProps) {
   const groupRef = useRef<THREE.Group>(null!);
+  const shape: PropShape = asset.shape ?? 'box';
 
   useEffect(() => {
     console.log('[CineBlock] PropMannequin mounted:', asset.name, 'at', placement.position);
   }, [asset.name, placement.position]);
+
+  const handleClick = (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    onSelect();
+  };
+
+  const renderGeometry = () => {
+    if (shape === 'dog') {
+      return (
+        <group position={[0, 0.05, 0]} onClick={handleClick}>
+          <ProceduralDog color={asset.color} occlude={occlude} />
+        </group>
+      );
+    }
+    if (shape === 'cat') {
+      return (
+        <group position={[0, 0.05, 0]} onClick={handleClick}>
+          <ProceduralCat color={asset.color} occlude={occlude} />
+        </group>
+      );
+    }
+
+    const isPlane = shape === 'plane';
+
+    return (
+      <mesh position={[0, 0.2, 0]} renderOrder={999} onClick={handleClick}>
+        {shape === 'box' && <boxGeometry args={[0.4, 0.4, 0.4]} />}
+        {shape === 'cylinder' && <cylinderGeometry args={[0.2, 0.2, 0.4, 16]} />}
+        {shape === 'sphere' && <sphereGeometry args={[0.2, 16, 16]} />}
+        {shape === 'cone' && <coneGeometry args={[0.2, 0.4, 16]} />}
+        {shape === 'plane' && <planeGeometry args={[0.4, 0.4]} />}
+        {shape === 'capsule' && <capsuleGeometry args={[0.12, 0.2, 8, 16]} />}
+        <meshStandardMaterial
+          color={asset.color}
+          depthTest={occlude}
+          transparent
+          opacity={0.85}
+          side={isPlane ? THREE.DoubleSide : THREE.FrontSide}
+        />
+      </mesh>
+    );
+  };
 
   return (
     <>
@@ -86,18 +133,8 @@ export function PropMannequin({ asset, placement, isSelected, onSelect, onTransf
         rotation={placement.rotation}
         scale={placement.scale}
       >
-        <mesh
-          position={[0, 0.25, 0]}
-          renderOrder={999}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-        >
-          <boxGeometry args={[0.4, 0.4, 0.4]} />
-          <meshStandardMaterial color={asset.color} depthTest={false} transparent opacity={0.85} />
-        </mesh>
-        <Html position={[0, 0.7, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
+        {renderGeometry()}
+        <Html position={[0, 0.65, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
           <div
             className="px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap"
             style={{ backgroundColor: asset.color + 'CC', color: '#fff' }}
@@ -204,6 +241,7 @@ export function PlacementRaycastHelper({ colliderRef, placingAssetId, onPlace, o
 
       // Try collider mesh first
       if (colliderRef.current) {
+        colliderRef.current.updateMatrixWorld(true);
         const meshes: THREE.Mesh[] = [];
         colliderRef.current.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) meshes.push(child as THREE.Mesh);
@@ -212,7 +250,8 @@ export function PlacementRaycastHelper({ colliderRef, placingAssetId, onPlace, o
         const hits = raycaster.current.intersectObjects(meshes, false);
         if (hits.length > 0) {
           const p = hits[0].point;
-          console.log('[CineBlock] Raycast HIT at', [p.x, p.y, p.z], 'distance:', hits[0].distance);
+          const n = hits[0].face?.normal;
+          console.log('[CineBlock] Raycast HIT at', [p.x, p.y, p.z], 'distance:', hits[0].distance, 'face normal:', n ? [n.x, n.y, n.z] : 'none');
           onPlace([p.x, p.y, p.z]);
           return;
         }
@@ -260,6 +299,7 @@ interface MannequinSceneProps {
   onPlace: (point: [number, number, number]) => void;
   onCancelPlace: () => void;
   orbitControlsRef: React.RefObject<THREE.EventDispatcher | null>;
+  occlude?: boolean;
 }
 
 export function MannequinScene({
@@ -274,6 +314,7 @@ export function MannequinScene({
   onPlace,
   onCancelPlace,
   orbitControlsRef,
+  occlude = false,
 }: MannequinSceneProps) {
   // Click on empty space to deselect
   const { scene } = useThree();
@@ -312,6 +353,7 @@ export function MannequinScene({
               onSelect={() => onSelect(asset.id)}
               onTransformEnd={handleTransformEnd}
               orbitControlsRef={orbitControlsRef}
+              occlude={occlude}
             />
           );
         }
@@ -325,6 +367,7 @@ export function MannequinScene({
             onSelect={() => onSelect(asset.id)}
             onTransformEnd={handleTransformEnd}
             orbitControlsRef={orbitControlsRef}
+            occlude={occlude}
           />
         );
       })}
@@ -343,19 +386,28 @@ export function MannequinScene({
 
 // --- Overlay renderer: renders mannequins in a separate pass on top of Gaussian splats ---
 
-export function MannequinOverlay({ children }: { children: React.ReactNode }) {
+interface MannequinOverlayProps {
+  children: React.ReactNode;
+  occlude?: boolean;
+  colliderRef?: React.RefObject<THREE.Object3D | null>;
+  overlaySceneRef?: React.RefObject<THREE.Scene | null>;
+}
+
+export function MannequinOverlay({ children, occlude = false, overlaySceneRef }: MannequinOverlayProps) {
   const overlayScene = useMemo(() => new THREE.Scene(), []);
 
-  // Taking over rendering: render main scene first, then overlay with cleared depth
+  useEffect(() => {
+    if (overlaySceneRef) (overlaySceneRef as React.MutableRefObject<THREE.Scene | null>).current = overlayScene;
+  }, [overlayScene, overlaySceneRef]);
+
+  // Taking over rendering: render main scene first, then overlay
   useFrame(({ gl, scene, camera }) => {
-    // Step 1: render the main scene (splats, collider, etc.)
+    // Step 1: render the main scene (splats now write depth via SparkRenderer depthWrite: true)
     gl.render(scene, camera);
 
-    // Step 2: clear only the depth buffer, keep color
+    // Step 2: render mannequins on top
     gl.autoClear = false;
-    gl.clearDepth();
-
-    // Step 3: render the overlay scene (mannequins + lights) on top
+    if (!occlude) gl.clearDepth(); // clear depth = mannequins always on top (original behavior)
     gl.render(overlayScene, camera);
 
     gl.autoClear = true;
