@@ -16,7 +16,7 @@ function patchCameraClone(camera: THREE.Camera) {
   const cam = camera as any;
   camera.clone = function (recursive?: boolean) {
     const saved: Record<string, unknown> = {};
-    const skipKeys = ['domElement', '_listeners', '_controlsDispose'];
+    const skipKeys = ['domElement', '_listeners', '_controlsDispose', '_cameraControls'];
     for (const key of skipKeys) {
       if (key in cam) {
         saved[key] = cam[key];
