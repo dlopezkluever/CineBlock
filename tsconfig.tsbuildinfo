@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/store.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/articulatedmannequin.tsx","./src/components/mannequins.tsx","./src/components/marbleworld.tsx","./src/services/marbleapi.ts","./src/utils/surfaceclamp.ts","./src/views/resultsview.tsx","./src/views/setupview.tsx","./src/views/studioview.tsx"],"version":"5.9.3"}

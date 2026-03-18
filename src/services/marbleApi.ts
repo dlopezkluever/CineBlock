@@ -134,10 +134,10 @@ export async function generateWorld(
     model: options.model ?? 'Marble 0.1-mini',
   };
   if (options.textPrompt?.trim()) {
-    body.text_prompt = options.textPrompt.trim();
+    (body.world_prompt as Record<string, unknown>).text_prompt = options.textPrompt.trim();
   }
   if (options.reconstructImages) {
-    body.reconstruct_images = true;
+    (body.world_prompt as Record<string, unknown>).reconstruct_images = true;
   }
   if (options.seed != null) {
     body.seed = options.seed;
