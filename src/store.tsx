@@ -36,6 +36,7 @@ export type Action =
   | { type: 'CLEAR_VIDEO_FILE' }
   | { type: 'SET_SINGLE_IMAGE'; file: File; previewUrl: string; dimensions?: ImageDimensions }
   | { type: 'CLEAR_SINGLE_IMAGE' }
+  | { type: 'SET_ROLL_ANGLE'; angle: number }
   | { type: 'RESET' };
 
 // --- Initial State ---
@@ -70,6 +71,7 @@ export const initialState: CineBlockState = {
   assetVisibility: {},
   mannequinPlacements: [],
   captures: [],
+  rollAngle: 0,
 };
 
 // --- Reducer ---
@@ -302,6 +304,9 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
 
     case 'CLEAR_SINGLE_IMAGE':
       return { ...state, singleImage: null };
+
+    case 'SET_ROLL_ANGLE':
+      return { ...state, rollAngle: action.angle };
 
     case 'RESET':
       return initialState;
