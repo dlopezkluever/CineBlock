@@ -27,6 +27,7 @@ function makeCapture(
     dataUrl: `data:image/png;base64,fake-${shotId}-${frameType}`,
     isHero,
     capturedAt: new Date().toISOString(),
+    rollAngle: 0,
   };
 }
 
