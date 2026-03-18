@@ -7,14 +7,15 @@ interface ArticulatedMannequinProps {
   color: string;
   pose?: MannequinPose;
   bodyParams?: MannequinBodyParams;
+  occlude?: boolean;
 }
 
 /** Shared material props for all body parts */
-function bodyMat(color: string) {
-  return { color, depthTest: false, transparent: true, opacity: 0.85 };
+function bodyMat(color: string, occlude: boolean) {
+  return { color, depthTest: occlude, transparent: true, opacity: 0.85 };
 }
 
-export function ArticulatedMannequin({ color, pose, bodyParams }: ArticulatedMannequinProps) {
+export function ArticulatedMannequin({ color, pose, bodyParams, occlude = false }: ArticulatedMannequinProps) {
   const p = pose ?? DEFAULT_POSE;
   const bp = bodyParams ?? DEFAULT_BODY_PARAMS;
 
@@ -40,7 +41,7 @@ export function ArticulatedMannequin({ color, pose, bodyParams }: ArticulatedMan
     };
   }, [bp.height, bp.build]);
 
-  const mat = useMemo(() => bodyMat(color), [color]);
+  const mat = useMemo(() => bodyMat(color, occlude), [color, occlude]);
 
   // Convert shoulder/hip euler arrays to THREE.Euler for rotation
   const lShoulderRot = useMemo(() => new THREE.Euler(...p.leftShoulder), [p.leftShoulder]);
