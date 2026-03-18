@@ -53,7 +53,7 @@ export function GaussianSplat({ spzUrl, onLoaded }: GaussianSplatProps) {
   }, [camera]);
 
   useEffect(() => {
-    const spark = new SparkRenderer({ renderer: gl });
+    const spark = new SparkRenderer({ renderer: gl, depthWrite: true });
     sparkRef.current = spark;
     scene.add(spark);
 
@@ -95,9 +95,13 @@ export function ColliderMesh({ colliderUrl, onLoaded }: ColliderMeshProps) {
   useEffect(() => {
     if (gltfScene) {
       const box = new Box3().setFromObject(gltfScene);
-      console.log('[CineBlock] Collider mesh loaded, bounding box:', box.min.toArray(), box.max.toArray());
+      console.log('[CineBlock] Collider local bounding box:', box.min.toArray(), box.max.toArray());
 
       if (onLoaded && meshRef.current) {
+        // Force world matrix update so bounding box reflects the Math.PI rotation
+        meshRef.current.updateMatrixWorld(true);
+        const worldBox = new Box3().setFromObject(meshRef.current);
+        console.log('[CineBlock] Collider WORLD bounding box (after rotation):', worldBox.min.toArray(), worldBox.max.toArray());
         onLoaded(meshRef.current);
       }
     }
