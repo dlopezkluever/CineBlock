@@ -130,7 +130,7 @@ function MannequinGizmo({ target, onTransformEnd, orbitControlsRef }: MannequinG
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'g' || e.key === 'G') setMode('translate');
       if (e.key === 'r' || e.key === 'R') setMode('rotate');
-      if (e.key === 's' || e.key === 'S') setMode('scale');
+      if (e.key === 'e' || e.key === 'E') setMode('scale');
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
