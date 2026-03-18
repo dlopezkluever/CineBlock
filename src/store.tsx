@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings, ImageDimensions, VideoSlot, SingleImageSlot } from './types';
+import type { CineBlockState, AzimuthSlot, AspectRatioKey, MannequinPose, MannequinBodyParams, InputMode, GenerationSettings, ImageDimensions, VideoSlot, SingleImageSlot, LightPlacement, SceneLighting } from './types';
+import { DEFAULT_SCENE_LIGHTING } from './types';
 
 // --- Actions ---
 
@@ -37,6 +38,12 @@ export type Action =
   | { type: 'SET_SINGLE_IMAGE'; file: File; previewUrl: string; dimensions?: ImageDimensions }
   | { type: 'CLEAR_SINGLE_IMAGE' }
   | { type: 'SET_ROLL_ANGLE'; angle: number }
+  | { type: 'SET_MANNEQUIN_OCCLUSION'; enabled: boolean }
+  | { type: 'ADD_LIGHT'; light: LightPlacement }
+  | { type: 'UPDATE_LIGHT'; id: string; shotId: string; updates: Partial<Omit<LightPlacement, 'id' | 'shotId'>> }
+  | { type: 'REMOVE_LIGHT'; id: string; shotId: string }
+  | { type: 'SET_SCENE_LIGHTING'; lighting: Partial<SceneLighting> }
+  | { type: 'SET_LIGHTING_MODE'; enabled: boolean }
   | { type: 'RESET' };
 
 // --- Initial State ---
@@ -70,8 +77,12 @@ export const initialState: CineBlockState = {
   activeFrameType: 'start',
   assetVisibility: {},
   mannequinPlacements: [],
+  lightPlacements: [],
+  sceneLighting: DEFAULT_SCENE_LIGHTING,
+  lightingModeEnabled: false,
   captures: [],
   rollAngle: 0,
+  mannequinOcclusion: true,
 };
 
 // --- Reducer ---
@@ -148,6 +159,7 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
       return {
         ...state,
         shots: state.shots.filter((s) => s.id !== action.id),
+        lightPlacements: state.lightPlacements.filter((l) => l.shotId !== action.id),
       };
 
     case 'UPDATE_SHOT':
@@ -175,8 +187,21 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
         worldStatus: 'ready',
       };
 
-    case 'SET_ACTIVE_SHOT':
-      return { ...state, activeShotIndex: action.index };
+    case 'SET_ACTIVE_SHOT': {
+      const prevShot = state.shots[state.activeShotIndex];
+      const nextShot = state.shots[action.index];
+      let newLights = state.lightPlacements;
+      if (prevShot && nextShot && prevShot.id !== nextShot.id) {
+        const nextHasLights = state.lightPlacements.some((l) => l.shotId === nextShot.id);
+        if (!nextHasLights) {
+          const cloned = state.lightPlacements
+            .filter((l) => l.shotId === prevShot.id)
+            .map((l) => ({ ...l, id: crypto.randomUUID(), shotId: nextShot.id }));
+          newLights = [...state.lightPlacements, ...cloned];
+        }
+      }
+      return { ...state, activeShotIndex: action.index, lightPlacements: newLights };
+    }
 
     case 'SET_FRAME_TYPE':
       return { ...state, activeFrameType: action.frameType };
@@ -307,6 +332,34 @@ export function reducer(state: CineBlockState, action: Action): CineBlockState {
 
     case 'SET_ROLL_ANGLE':
       return { ...state, rollAngle: action.angle };
+
+    case 'SET_MANNEQUIN_OCCLUSION':
+      return { ...state, mannequinOcclusion: action.enabled };
+
+    case 'ADD_LIGHT':
+      return { ...state, lightPlacements: [...state.lightPlacements, action.light] };
+
+    case 'UPDATE_LIGHT':
+      return {
+        ...state,
+        lightPlacements: state.lightPlacements.map((l) =>
+          l.id === action.id && l.shotId === action.shotId ? { ...l, ...action.updates } : l
+        ),
+      };
+
+    case 'REMOVE_LIGHT':
+      return {
+        ...state,
+        lightPlacements: state.lightPlacements.filter(
+          (l) => !(l.id === action.id && l.shotId === action.shotId)
+        ),
+      };
+
+    case 'SET_SCENE_LIGHTING':
+      return { ...state, sceneLighting: { ...state.sceneLighting, ...action.lighting } };
+
+    case 'SET_LIGHTING_MODE':
+      return { ...state, lightingModeEnabled: action.enabled };
 
     case 'RESET':
       return initialState;
