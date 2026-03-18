@@ -1,10 +1,11 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
+import { CameraControls } from '@react-three/drei';
+import type CameraControlsImpl from 'camera-controls';
 import { useCineBlockState, useCineBlockDispatch } from '../store';
 import MarbleWorld from '../components/MarbleWorld';
 import { MannequinScene, MannequinOverlay } from '../components/Mannequins';
-import type * as THREE from 'three';
+import * as THREE from 'three';
 
 import type { AspectRatioKey } from '../types';
 import { ASPECT_RATIOS, DEFAULT_BODY_PARAMS, DEFAULT_POSE } from '../types';
@@ -38,26 +39,96 @@ function SceneControls({
   controlsRef,
 }: {
   resetRef: React.MutableRefObject<(() => void) | null>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  controlsRef: React.MutableRefObject<any>;
+  controlsRef: React.MutableRefObject<CameraControlsImpl | null>;
 }) {
-  const { camera } = useThree();
-
   useEffect(() => {
     resetRef.current = () => {
-      camera.position.set(3, 2, 3);
-      camera.lookAt(0, 0, 0);
       if (controlsRef.current) {
-        controlsRef.current.target.set(0, 0, 0);
-        controlsRef.current.update();
+        controlsRef.current.setLookAt(3, 2, 3, 0, 0, 0, true);
       }
     };
     return () => {
       resetRef.current = null;
     };
-  }, [camera, resetRef, controlsRef]);
+  }, [resetRef, controlsRef]);
 
-  return <OrbitControls ref={controlsRef} makeDefault />;
+  return <CameraControls ref={controlsRef} makeDefault smoothTime={0.25} />;
+}
+
+// --- WASD + Q camera translation driver ---
+
+function CameraKeyboardDriver({
+  controlsRef,
+  selectedAssetId,
+}: {
+  controlsRef: React.MutableRefObject<CameraControlsImpl | null>;
+  selectedAssetId: string | null;
+}) {
+  const keysRef = useRef(new Set<string>());
+  const SPEED = 2;
+
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      keysRef.current.add(e.key.toLowerCase());
+    };
+    const onUp = (e: KeyboardEvent) => {
+      keysRef.current.delete(e.key.toLowerCase());
+    };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, []);
+
+  useFrame((_, delta) => {
+    const ctrl = controlsRef.current;
+    if (!ctrl) return;
+    const keys = keysRef.current;
+    const d = SPEED * delta;
+
+    if (keys.has('a')) ctrl.truck(-d, 0, false);
+    if (keys.has('d')) ctrl.truck(d, 0, false);
+    if (keys.has('w')) ctrl.forward(d, false);
+    if (keys.has('s')) ctrl.forward(-d, false);
+    if (keys.has('e') && !selectedAssetId) ctrl.elevate(d, false);
+    if (keys.has('q')) ctrl.elevate(-d, false);
+  });
+
+  return null;
+}
+
+// --- Camera roll (dutch angle) driver ---
+
+function CameraRollDriver({
+  controlsRef,
+  rollAngle,
+}: {
+  controlsRef: React.MutableRefObject<CameraControlsImpl | null>;
+  rollAngle: number;
+}) {
+  const { camera } = useThree();
+
+  useFrame(() => {
+    const ctrl = controlsRef.current;
+    if (!ctrl) return;
+    if (rollAngle === 0) {
+      camera.up.set(0, 1, 0);
+    } else {
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      const defaultUp = new THREE.Vector3(0, 1, 0);
+      const radians = THREE.MathUtils.degToRad(rollAngle);
+      defaultUp.applyAxisAngle(forward, radians);
+      camera.up.copy(defaultUp);
+    }
+    ctrl.updateCameraUp();
+  });
+
+  return null;
 }
 
 // --- Main StudioView ---
@@ -75,8 +146,7 @@ export default function StudioView({
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   const viewfinderRef = useRef<HTMLDivElement>(null);
   const cameraResetRef = useRef<(() => void) | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orbitControlsRef = useRef<any>(null);
+  const orbitControlsRef = useRef<CameraControlsImpl | null>(null);
   const prevShotIndexRef = useRef(state.activeShotIndex);
 
   // Existing UI state
@@ -240,11 +310,12 @@ export default function StudioView({
           dataUrl: croppedDataUrl,
           isHero: existingForType.length === 0,
           capturedAt: new Date().toISOString(),
+          rollAngle: state.rollAngle,
         },
       });
     };
     img.src = fullDataUrl;
-  }, [activeShot, state.activeFrameType, state.captures, dispatch]);
+  }, [activeShot, state.activeFrameType, state.captures, state.rollAngle, dispatch]);
 
   // Lens cycle
   const cycleLens = useCallback(() => {
@@ -257,7 +328,8 @@ export default function StudioView({
   // Camera reset
   const handleResetCamera = useCallback(() => {
     cameraResetRef.current?.();
-  }, []);
+    dispatch({ type: 'SET_ROLL_ANGLE', angle: 0 });
+  }, [dispatch]);
 
   // Close studio with confirmation
   const handleClose = useCallback(() => {
@@ -285,6 +357,10 @@ export default function StudioView({
           break;
         case '2':
           dispatch({ type: 'SET_FRAME_TYPE', frameType: 'end' });
+          break;
+        case 'h':
+        case 'H':
+          dispatch({ type: 'SET_ROLL_ANGLE', angle: 0 });
           break;
         case 'Escape':
           if (lightboxUrl) {
@@ -426,11 +502,13 @@ export default function StudioView({
                 placingAssetId={placingAssetId}
                 onPlace={handlePlace}
                 onCancelPlace={handleCancelPlace}
-                orbitControlsRef={orbitControlsRef}
+                orbitControlsRef={orbitControlsRef as React.RefObject<THREE.EventDispatcher | null>}
               />
             </MannequinOverlay>
 
             <SceneControls resetRef={cameraResetRef} controlsRef={orbitControlsRef} />
+            <CameraKeyboardDriver controlsRef={orbitControlsRef} selectedAssetId={selectedAssetId} />
+            <CameraRollDriver controlsRef={orbitControlsRef} rollAngle={state.rollAngle} />
           </Canvas>
 
           {/* SPZ loading indicator */}
@@ -681,21 +759,33 @@ export default function StudioView({
                     </label>
                     <div className="space-y-1 text-[10px] text-zinc-500">
                       <div className="flex justify-between">
+                        <span>Camera move</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          W A S D
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Camera down / up</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          Q / E
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Reset roll</span>
+                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                          H
+                        </kbd>
+                      </div>
+                      <div className="flex justify-between">
                         <span>Capture</span>
                         <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
                           Space
                         </kbd>
                       </div>
                       <div className="flex justify-between">
-                        <span>Start Frame</span>
+                        <span>Start / End Frame</span>
                         <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
-                          1
-                        </kbd>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>End Frame</span>
-                        <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
-                          2
+                          1 / 2
                         </kbd>
                       </div>
                       <div className="flex justify-between">
@@ -713,7 +803,7 @@ export default function StudioView({
                       <div className="flex justify-between">
                         <span>Scale</span>
                         <kbd className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
-                          S
+                          E
                         </kbd>
                       </div>
                       <div className="flex justify-between">
@@ -1137,6 +1227,38 @@ export default function StudioView({
             </div>
           </div>
 
+          {/* Section 4b — Camera Roll */}
+          <div className="p-4 border-b border-zinc-700/50">
+            <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+              Camera Roll
+            </h3>
+            <input
+              type="range"
+              min={-45}
+              max={45}
+              step={1}
+              value={state.rollAngle}
+              onChange={(e) =>
+                dispatch({ type: 'SET_ROLL_ANGLE', angle: parseInt(e.target.value) })
+              }
+              className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+            />
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[10px] font-mono text-zinc-500">
+                {state.rollAngle}&deg;
+              </span>
+              {state.rollAngle !== 0 && (
+                <button
+                  onClick={() => dispatch({ type: 'SET_ROLL_ANGLE', angle: 0 })}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+                  title="Reset camera roll to 0°"
+                >
+                  Return to Horizon
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Section 5 — Capture tray */}
           <div className="p-4 flex-1 overflow-y-auto">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
@@ -1274,12 +1396,15 @@ export default function StudioView({
               </h3>
               <div className="space-y-1.5 text-xs">
                 {[
+                  ['W / A / S / D', 'Move camera forward / left / back / right'],
+                  ['Q', 'Move camera down'],
+                  ['E', 'Move camera up (or Scale when asset selected)'],
+                  ['H', 'Return to horizon (reset roll)'],
                   ['Space', 'Capture screenshot'],
                   ['1', 'Switch to Start Frame'],
                   ['2', 'Switch to End Frame'],
                   ['G', 'Move selected asset'],
                   ['R', 'Rotate selected asset'],
-                  ['S', 'Scale selected asset'],
                   ['Esc', 'Cancel / Close / Deselect'],
                 ].map(([key, desc]) => (
                   <div key={key} className="flex items-center justify-between">
