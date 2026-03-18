@@ -72,6 +72,7 @@ export interface CineBlockState {
   assetVisibility: Record<string, boolean>;
   mannequinPlacements: MannequinPlacement[];
   captures: CaptureEntry[];
+  rollAngle: number; // degrees, default 0
 }
 
 export interface AzimuthSlot {
@@ -154,4 +155,5 @@ export interface CaptureEntry {
   dataUrl: string;
   isHero: boolean;
   capturedAt: string;
+  rollAngle: number; // degrees at time of capture
 }
