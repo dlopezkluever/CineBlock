@@ -71,8 +71,12 @@ export interface CineBlockState {
   activeFrameType: 'start' | 'end';
   assetVisibility: Record<string, boolean>;
   mannequinPlacements: MannequinPlacement[];
+  lightPlacements: LightPlacement[];
+  sceneLighting: SceneLighting;
+  lightingModeEnabled: boolean;
   captures: CaptureEntry[];
   rollAngle: number; // degrees, default 0
+  mannequinOcclusion: boolean;
 }
 
 export interface AzimuthSlot {
@@ -88,9 +92,34 @@ export interface CineBlockAsset {
   id: string;
   name: string;
   type: 'character' | 'prop';
+  shape?: PropShape;
   description: string;
   color: string;
 }
+
+export type PropShape = 'box' | 'cylinder' | 'sphere' | 'cone' | 'plane' | 'capsule' | 'dog' | 'cat';
+
+export const PROP_SHAPES: { value: PropShape; label: string }[] = [
+  { value: 'box', label: 'Box' },
+  { value: 'cylinder', label: 'Cylinder' },
+  { value: 'sphere', label: 'Sphere' },
+  { value: 'cone', label: 'Cone' },
+  { value: 'plane', label: 'Plane' },
+  { value: 'capsule', label: 'Capsule' },
+  { value: 'dog', label: 'Dog' },
+  { value: 'cat', label: 'Cat' },
+];
+
+export const PROP_SHAPE_DEFAULTS: Record<PropShape, [number, number, number]> = {
+  box:      [1, 1, 1],
+  cylinder: [0.8, 1.5, 0.8],
+  sphere:   [1, 1, 1],
+  cone:     [0.8, 1.5, 0.8],
+  plane:    [2.5, 0.05, 2.5],
+  capsule:  [0.5, 1.8, 0.5],
+  dog:      [1.2, 0.9, 0.6],
+  cat:      [0.9, 0.7, 0.5],
+};
 
 export interface CineBlockShot {
   id: string;
@@ -136,6 +165,46 @@ export const DEFAULT_POSE: MannequinPose = {
 export const DEFAULT_BODY_PARAMS: MannequinBodyParams = {
   height: 1.7,
   build: 1.0,
+};
+
+// --- Lighting ---
+
+export type LightType = 'point' | 'spot';
+
+export interface LightPlacement {
+  id: string;
+  shotId: string;
+  lightType: LightType;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  kelvin: number;
+  tintColor: string;
+  intensity: number;
+  distance: number;
+  coneAngle: number;
+  penumbra: number;
+}
+
+export interface SceneLighting {
+  ambientIntensity: number;
+  directionalIntensity: number;
+}
+
+export const DEFAULT_SCENE_LIGHTING: SceneLighting = {
+  ambientIntensity: 0.5,
+  directionalIntensity: 1.0,
+};
+
+export const DEFAULT_LIGHT: Omit<LightPlacement, 'id' | 'shotId'> = {
+  lightType: 'spot',
+  position: [0, 2, 0],
+  rotation: [-Math.PI / 2, 0, 0],
+  kelvin: 5500,
+  tintColor: '#ffffff',
+  intensity: 1.0,
+  distance: 10,
+  coneAngle: Math.PI / 6,
+  penumbra: 0.5,
 };
 
 export interface MannequinPlacement {
