@@ -51,14 +51,14 @@ describe('Camera Roll — SET_ROLL_ANGLE', () => {
     expect(state.rollAngle).toBe(-30);
   });
 
-  it('sets roll to maximum +45', () => {
-    const state = reducer(initialState, { type: 'SET_ROLL_ANGLE', angle: 45 });
-    expect(state.rollAngle).toBe(45);
+  it('sets roll to maximum +90', () => {
+    const state = reducer(initialState, { type: 'SET_ROLL_ANGLE', angle: 90 });
+    expect(state.rollAngle).toBe(90);
   });
 
-  it('sets roll to minimum -45', () => {
-    const state = reducer(initialState, { type: 'SET_ROLL_ANGLE', angle: -45 });
-    expect(state.rollAngle).toBe(-45);
+  it('sets roll to minimum -90', () => {
+    const state = reducer(initialState, { type: 'SET_ROLL_ANGLE', angle: -90 });
+    expect(state.rollAngle).toBe(-90);
   });
 
   it('resets roll back to 0', () => {
@@ -212,6 +212,28 @@ describe('Scale Shortcut Remap — S freed for camera, E for scale', () => {
     expect(newShortcutMap['r']).toBe('rotate');
   });
 
+  it('T key is mapped to reset rotation in the new shortcut layout', () => {
+    const newShortcutMap: Record<string, string> = {
+      w: 'camera forward',
+      a: 'camera left',
+      s: 'camera backward',
+      d: 'camera right',
+      q: 'camera down',
+      e: 'scale / camera up',
+      g: 'translate',
+      r: 'rotate',
+      h: 'reset roll',
+      t: 'reset rotation',
+    };
+
+    expect(newShortcutMap['t']).toBe('reset rotation');
+    // T should not conflict with existing camera/gizmo keys
+    expect(newShortcutMap['t']).not.toContain('camera');
+    expect(newShortcutMap['t']).not.toBe('translate');
+    expect(newShortcutMap['t']).not.toBe('rotate');
+    expect(newShortcutMap['t']).not.toBe('scale');
+  });
+
   it('WASD keys are all mapped to camera movement', () => {
     const cameraKeys = ['w', 'a', 's', 'd'];
     const cameraActions = ['camera forward', 'camera left', 'camera backward', 'camera right'];
@@ -226,10 +248,10 @@ describe('Scale Shortcut Remap — S freed for camera, E for scale', () => {
 describe('Camera Roll — Rapid Sequential Updates', () => {
   it('handles many consecutive roll changes correctly', () => {
     let state = initialState;
-    for (let angle = -45; angle <= 45; angle += 5) {
+    for (let angle = -90; angle <= 90; angle += 5) {
       state = reducer(state, { type: 'SET_ROLL_ANGLE', angle });
     }
-    expect(state.rollAngle).toBe(45);
+    expect(state.rollAngle).toBe(90);
   });
 
   it('alternating positive and negative rolls settles on last value', () => {
