@@ -1,0 +1,315 @@
+﻿> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.worldlabs.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+
+> How to create a world with a video
+
+
+# Video prompt tips
+
+
+# Creating Worlds from Video
+
+
+Upload short videos to create immersive 3D worlds with rich spatial information.
+Videos provide multiple perspectives of your space, allowing the AI to understand depth
+and spatial relationships better than a single images alone.
+
+
+## Getting Started with Video Upload
+
+
+Drag a short video of a static space into the omnibox; it will expand with <Icon icon="image" /> 2D input mode,
+which allows you to start a generation by clicking on <Icon icon="brush" /> Create.
+For video file specifications, see [Prompt Guidelines →](/marble/create/prompt-guides)
+
+
+## Best Practices for Video Capture
+
+
+### Camera Movement Guidelines
+
+
+* **Rotation Focus**: Rotate the camera to cover a large viewing angle
+* **Avoid motion blur**: Use steady, controlled camera movements to avoid excessive motion blur
+* **Wide Coverage**: Aim to capture 180° to 360° of the space
+* **Continuous Shot**: Record one uninterrupted take of the space
+
+
+### Camera Settings
+
+
+* **Fixed Focal Length**: Avoid zooming in or out during recording
+* **Fixed Exposure**: Avoid changing exposure during recording
+
+
+Video provides the richer spatial information for world generation, as the AI can analyze multiple perspectives and understand how different elements relate in 3D space.
+
+
+
+
+Built with [Mintlify](https://mintlify.com).
+
+
+________________
+
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.worldlabs.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+
+> Connect and arrange multiple worlds to create larger, seamless environments for games and experiences.
+
+
+# Compose
+
+
+<iframe width="100%" height="400" src="https://www.youtube.com/embed/vp0x4jUWCHw" title="Welcome to Marble" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+
+
+# Studio Compose: Building Connected Worlds
+
+
+Use Studio Compose to connect multiple existing worlds into larger, seamless environments. Perfect for creating game maps, architectural complexes, or any scenario where you need to join separate scenes into one cohesive experience.
+
+
+## Getting Started with Compose
+
+
+The Studio Compose interface provides powerful tools for world arrangement:
+
+
+* **3D Viewport**: The main canvas showing your connected worlds
+* **Scene Panel**: Manage and add worlds to your composition
+* **Controls Panel**: Fine-tune positioning, rotation, and scaling
+* **Project Tools**: Save, share, and export your composed world
+
+
+## How to Add Worlds to Your Composition
+
+
+Build your composition by importing existing worlds:
+
+
+1. **Click Add Scene**: In the Scene panel, select **Add** to browse your worlds
+2. **Choose Your World**: Select from your saved worlds or community creations
+3. **Position the World**: The world appears in the viewport with positioning handles
+4. **Repeat as Needed**: Add multiple worlds to build your larger environment
+
+
+## Splat Removal
+
+
+2. **Brush:** Use circle or square brushes to delete splats.
+3. **Brush Size:** Adjust the brush size for more precise control.
+
+
+## How to Position and Align Worlds
+
+
+Precisely control world placement:
+
+
+1. **Select a World**: Click on any world in the viewport or Scene panel
+2. **Use Position Controls**: In the Controls panel, adjust X, Y, Z coordinates
+3. **Set Rotation**: Modify rotation values to orient worlds correctly
+4. **Adjust Scale**: Change the scale value to resize worlds proportionally
+5. **Visual Alignment**: Use the grid and bounding corners for visual reference
+
+
+## How to Navigate Your Composition
+
+
+Move around your large-scale environment:
+
+
+1. **Adjust Move Speed**: Set movement speed (default: 3) for comfortable navigation
+2. **Enable Natural Mouse**: Toggle natural mouse controls for intuitive camera movement
+3. **Set Field of View (FOV)**: Adjust to 92 or your preferred viewing angle
+4. **Use Grid Reference**: Toggle grid visibility to help with alignment
+5. **Show Bounding Corners**: Enable to see world boundaries clearly
+
+
+## How to Fine-Tune World Connections
+
+
+Create seamless transitions between worlds:
+
+
+1. **Check Overlapping Areas**: Look for where worlds meet or overlap
+2. **Align Ground Levels**: Ensure floor heights match between connected worlds
+3. **Match Lighting**: Adjust worlds so lighting conditions blend naturally
+4. **Test Transitions**: Navigate between worlds to check for smooth movement
+5. **Adjust Background Color**: Set consistent background (BG Color: #3f3f3f) across scenes
+
+
+## How to Save and Export Your Composition
+
+
+Preserve and share your connected world:
+
+
+1. **Save Your Project**: Use the save controls to preserve your composition
+2. **Share Settings**: Enable sharing if you want others to view your creation
+3. **Export Options**: Use the Export button to generate files for external use
+4. **Monitor Splats**: Keep track of your splat usage (500,000 / 2,000,000 limit shown)
+
+
+## FAQ
+
+
+### What does the splat count represent?
+
+
+Splats represent the 3D Gaussian Splat data that makes up your worlds. The counter shows your current usage against your account limit. Larger, more detailed worlds use more splats.
+
+
+### What is the Layer panel for?
+
+
+The Layer panel lets you organize and manage the visibility of different worlds in your composition. You can hide or show specific worlds while working.
+
+
+### How do I delete a world from my composition?
+
+
+Select the world you want to remove and press delete key. The world will be removed from the composition but remains in your library.
+
+
+
+
+Built with [Mintlify](https://mintlify.com).
+________________
+
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.worldlabs.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+
+> Use panoramas for maximum control over the world.
+
+
+# Pano prompt tips
+
+
+# Creating Worlds from Panoramic Images
+
+
+Upload 360° panoramic images to create immersive 3D worlds with maximum control over your environment.
+Panoramas provide complete spatial information, allowing for more accurate and detailed world generation than standard images.
+
+
+## Getting Started with Panorama Upload
+
+
+You can obtain a full 360 equirectangular panorama by capturing it with a 360 camera,
+rendering it from a 3D software, or downloading from a Marble world.
+To create a world with panorama, you can simply drag and drop it to the omnibox; it
+will expand with <Icon icon="image" /> 2D input mode.
+Check the left and right edge of your panorama is continuous for best results.
+If the image is successfully recognized as a panorama, a <Icon icon="panorama" />
+icon will appear on the image thumbnail. You can then start a
+generation by clicking on <Icon icon="brush" /> Create.
+
+
+## Troubleshooting Common Issues
+
+
+### "Image is not recognized as a panorama"
+
+
+* **Check Aspect Ratio**: Ensure exactly 2:1 width to height ratio
+* **Check sky and ground coverage**: Phone panoramas often lack full vertical 180 coverage
+
+
+### "Seam visible in generated world"
+
+
+* **Fix Source Panorama**: Repair edge alignment in image editing software,
+* **"Use advanced editing"**: to edit panorama with AI assistance on Marble.
+
+
+## Frequently Asked Questions
+
+
+### Are multi panorama inputs supported?
+
+
+* **Not directly**: Multiple panoramic images cannot be uploaded together in a single generation. However, you can create larger worlds by generating a world from each panorama separately, then stitching them together using [Studio Compose](/marble/create/studio-tools/compose).
+
+
+Panoramic uploads give you the most control over the final world layout, as the 360° image provides complete spatial information for the AI to work with.
+
+
+
+
+Built with [Mintlify](https://mintlify.com).
+
+
+
+
+________________
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.worldlabs.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+
+> Specify more details by combining multiple images.
+
+
+# Multi-image prompt tips
+
+
+<iframe width="100%" height="400" src="https://www.youtube.com/embed/weTbkz5yioc" title="Multi-image Prompt Tips" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+
+
+# Creating Worlds with Multiple Images with Direction Control
+
+
+In the <Icon icon="image" /> 2D input mode of omnibox, drag in or upload up to 4 images.
+Click on the text overlay on image thumbnails to change its direction, and choose one from "Front", "Back", "Left", "Right".
+For this mode, images without overlap allow the marble models to creatively fill in the spaces between views.
+When you are done specifying the direction of each image, click on <Icon icon="brush" /> Create to generate the world.
+For image file specifications, see [Prompt Guidelines →](/marble/create/prompt-guides)
+
+
+* Direction Control is great for connecting different environments creatively.
+
+
+# Creating Worlds with Multiple Images with Auto Layout
+
+
+In the <Icon icon="image" /> 2D input mode of omnibox, drag in or upload up to 8 images.
+Toggle "Auto Layout" switch to on so the world model automatically determines the relative positioning of these images.
+In this mode, all uploaded images need to share the same aspect ratio and resolution, and should be images from the same space.
+Currently images captured in close proximity of each other but covering different viewing directions, and with some overlap between images, work the best.
+Click on <Icon icon="brush" /> Create to generate the world.
+
+
+* Auto Layout is great for quick reconstruction of existing spaces.
+
+
+## Troubleshooting Multi-Image Issues
+
+
+### "Auto Layout not working properly"
+
+
+* **Verify Aspect Ratios**: Ensure all images have exactly the same width-to-height ratio
+* **Check for Overlap**: Include visual elements that appear in multiple images
+* **Improve Image Quality**: Use sharp, well-lit images with clear details
+* **Check Lighting Consistency**: Try to match lighting conditions and color temperatures
+* **Use Images from Same Location**: Confirm all images are truly of the same space
+
+
+Multi-image prompting allows you to build more complex, interesting worlds than single images alone.
+The key is thoughtful planning of how your images relate spatially and visually to create cohesive, explorable environments.
+
+
+
+
+Built with [Mintlify](https://mintlify.com).

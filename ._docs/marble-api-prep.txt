@@ -1,0 +1,572 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.worldlabs.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Prepare media asset upload
+
+> Prepare a media asset upload for use in world generation.
+
+This API endpoint creates a media asset record and returns a signed upload URL.
+Use this workflow to upload images or videos that you want to reference in world
+generation requests.
+
+## Workflow
+
+1. **Prepare Upload** (this endpoint): Get a `media_asset_id` and `upload_url`
+2. **Upload File**: Use the signed URL to upload your file
+3. **Generate World**: Reference the `media_asset_id` in `/worlds:generate` with
+   source type "media_asset"
+
+## Request Parameters
+
+- `file_name`: Your file's name (e.g., "landscape.jpg")
+- `extension`: File extension without dot (e.g., "jpg", "png", "mp4")
+- `kind`: Either "image" or "video"
+- `metadata`: Optional custom metadata object
+
+## Response
+
+Returns a `MediaAssetPrepareUploadResponse` containing:
+
+- `media_asset`: Object with `media_asset_id` (use this in world generation)
+- `upload_info`: Object with `upload_url`, `required_headers`, and `curl_example`
+
+## Uploading Your File
+
+Use the returned `upload_url` and `required_headers` to upload your file:
+
+```bash
+curl --request PUT \
+  --url <upload_url> \
+  --header "Content-Type: <content-type>" \
+  --header "<header-name>: <header-value>" \
+  --upload-file /path/to/your/file
+```
+
+Replace:
+- `<upload_url>`: The `upload_url` from the response
+- `<content-type>`: MIME type (e.g., `image/png`, `image/jpeg`, `video/mp4`)
+- `<header-name>: <header-value>`: Each header from `required_headers`
+- `/path/to/your/file`: Path to your local file
+
+## Example Usage in World Generation
+
+After uploading, use the `media_asset_id` in a world generation request:
+
+```json
+{
+  "world_prompt": {
+    "type": "image",
+    "image_prompt": {
+      "source": "media_asset",
+      "media_asset_id": "<your-media-asset-id>"
+    }
+  }
+}
+```
+
+
+
+## OpenAPI
+
+````yaml POST /marble/v1/media-assets:prepare_upload
+openapi: 3.1.0
+info:
+  description: Public-facing API for the Marble platform
+  summary: Marble Public API v1
+  title: Marble Public API v1
+  version: 1.0.0
+servers:
+  - description: World API
+    url: https://api.worldlabs.ai
+security:
+  - ApiKeyAuth: []
+paths:
+  /marble/v1/media-assets:prepare_upload:
+    post:
+      summary: Prepare a media asset upload
+      description: >-
+        Prepare a media asset upload for use in world generation.
+
+
+        This API endpoint creates a media asset record and returns a signed
+        upload URL.
+
+        Use this workflow to upload images or videos that you want to reference
+        in world
+
+        generation requests.
+
+
+        ## Workflow
+
+
+        1. **Prepare Upload** (this endpoint): Get a `media_asset_id` and
+        `upload_url`
+
+        2. **Upload File**: Use the signed URL to upload your file
+
+        3. **Generate World**: Reference the `media_asset_id` in
+        `/worlds:generate` with
+           source type "media_asset"
+
+        ## Request Parameters
+
+
+        - `file_name`: Your file's name (e.g., "landscape.jpg")
+
+        - `extension`: File extension without dot (e.g., "jpg", "png", "mp4")
+
+        - `kind`: Either "image" or "video"
+
+        - `metadata`: Optional custom metadata object
+
+
+        ## Response
+
+
+        Returns a `MediaAssetPrepareUploadResponse` containing:
+
+
+        - `media_asset`: Object with `media_asset_id` (use this in world
+        generation)
+
+        - `upload_info`: Object with `upload_url`, `required_headers`, and
+        `curl_example`
+
+
+        ## Uploading Your File
+
+
+        Use the returned `upload_url` and `required_headers` to upload your
+        file:
+
+
+        ```bash
+
+        curl --request PUT \
+          --url <upload_url> \
+          --header "Content-Type: <content-type>" \
+          --header "<header-name>: <header-value>" \
+          --upload-file /path/to/your/file
+        ```
+
+
+        Replace:
+
+        - `<upload_url>`: The `upload_url` from the response
+
+        - `<content-type>`: MIME type (e.g., `image/png`, `image/jpeg`,
+        `video/mp4`)
+
+        - `<header-name>: <header-value>`: Each header from `required_headers`
+
+        - `/path/to/your/file`: Path to your local file
+
+
+        ## Example Usage in World Generation
+
+
+        After uploading, use the `media_asset_id` in a world generation request:
+
+
+        ```json
+
+        {
+          "world_prompt": {
+            "type": "image",
+            "image_prompt": {
+              "source": "media_asset",
+              "media_asset_id": "<your-media-asset-id>"
+            }
+          }
+        }
+
+        ```
+      operationId: prepare_media_asset_upload_marble_v1_media_assets_prepare_upload_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaAssetPrepareUploadRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAssetPrepareUploadResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+components:
+  schemas:
+    MediaAssetPrepareUploadRequest:
+      description: Request to prepare a media asset upload.
+      properties:
+        extension:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: File extension without dot
+          examples:
+            - mp4
+            - png
+            - jpg
+          title: Extension
+        file_name:
+          description: File name
+          title: File Name
+          type: string
+        kind:
+          $ref: '#/components/schemas/MediaAssetKind'
+          description: High-level media type
+          examples:
+            - image
+            - video
+        metadata:
+          anyOf:
+            - additionalProperties: true
+              type: object
+            - type: 'null'
+          description: Optional application-specific metadata
+          title: Metadata
+      required:
+        - file_name
+        - kind
+      title: MediaAssetPrepareUploadRequest
+      type: object
+    MediaAssetPrepareUploadResponse:
+      description: Response from preparing a media asset upload.
+      properties:
+        media_asset:
+          $ref: '#/components/schemas/MediaAsset'
+          description: The created media asset
+        upload_info:
+          $ref: '#/components/schemas/UploadUrlInfo'
+          description: Upload URL information
+      required:
+        - media_asset
+        - upload_info
+      title: MediaAssetPrepareUploadResponse
+      type: object
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: Detail
+          type: array
+      title: HTTPValidationError
+      type: object
+    MediaAssetKind:
+      description: High-level media asset type.
+      enum:
+        - image
+        - video
+      title: MediaAssetKind
+      type: string
+    MediaAsset:
+      description: |-
+        A user-uploaded media asset stored in managed storage.
+
+        MediaAssets can be images, videos, or binary blobs that are used
+        as input to world generation.
+      properties:
+        created_at:
+          description: Creation timestamp
+          format: date-time
+          title: Created At
+          type: string
+        extension:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: File extension without dot
+          examples:
+            - mp4
+            - png
+            - jpg
+          title: Extension
+        file_name:
+          description: File name
+          title: File Name
+          type: string
+        kind:
+          $ref: '#/components/schemas/MediaAssetKind'
+          description: High-level media type
+          examples:
+            - image
+            - video
+        media_asset_id:
+          description: Server-generated media asset identifier
+          title: Media Asset Id
+          type: string
+        metadata:
+          anyOf:
+            - additionalProperties: true
+              type: object
+            - type: 'null'
+          description: Optional application-specific metadata
+          title: Metadata
+        updated_at:
+          anyOf:
+            - format: date-time
+              type: string
+            - type: 'null'
+          description: Last update timestamp
+          title: Updated At
+      required:
+        - media_asset_id
+        - file_name
+        - kind
+        - created_at
+      title: MediaAsset
+      type: object
+    UploadUrlInfo:
+      description: Information required to upload raw bytes directly to storage.
+      properties:
+        curl_example:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: Optional curl example for convenience
+          title: Curl Example
+        required_headers:
+          anyOf:
+            - additionalProperties:
+                type: string
+              type: object
+            - type: 'null'
+          description: Headers that MUST be included when uploading (e.g. Content-Type)
+          title: Required Headers
+        upload_method:
+          description: Upload method
+          title: Upload Method
+          type: string
+        upload_url:
+          description: Signed URL for uploading bytes via PUT
+          title: Upload Url
+          type: string
+      required:
+        - upload_url
+        - upload_method
+      title: UploadUrlInfo
+      type: object
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          title: Location
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+        - loc
+        - msg
+        - type
+      title: ValidationError
+      type: object
+  securitySchemes:
+    ApiKeyAuth:
+      description: API key for authentication. Get your key from the developer portal.
+      in: header
+      name: WLT-Api-Key
+      type: apiKey
+
+````
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.worldlabs.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Get media asset
+
+> Get a media asset by ID.
+
+Retrieves metadata for a previously created media asset.
+
+Args:
+    media_asset_id: The media asset identifier.
+
+Returns:
+    MediaAsset object with media_asset_id, file_name, extension, kind,
+    metadata, created_at, and updated_at.
+
+Raises:
+    HTTPException: 404 if not found
+
+
+
+## OpenAPI
+
+````yaml GET /marble/v1/media-assets/{media_asset_id}
+openapi: 3.1.0
+info:
+  description: Public-facing API for the Marble platform
+  summary: Marble Public API v1
+  title: Marble Public API v1
+  version: 1.0.0
+servers:
+  - description: World API
+    url: https://api.worldlabs.ai
+security:
+  - ApiKeyAuth: []
+paths:
+  /marble/v1/media-assets/{media_asset_id}:
+    get:
+      summary: Get Media Asset
+      description: |-
+        Get a media asset by ID.
+
+        Retrieves metadata for a previously created media asset.
+
+        Args:
+            media_asset_id: The media asset identifier.
+
+        Returns:
+            MediaAsset object with media_asset_id, file_name, extension, kind,
+            metadata, created_at, and updated_at.
+
+        Raises:
+            HTTPException: 404 if not found
+      operationId: get_media_asset_marble_v1_media_assets__media_asset_id__get
+      parameters:
+        - in: path
+          name: media_asset_id
+          required: true
+          schema:
+            title: Media Asset Id
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaAsset'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+components:
+  schemas:
+    MediaAsset:
+      description: |-
+        A user-uploaded media asset stored in managed storage.
+
+        MediaAssets can be images, videos, or binary blobs that are used
+        as input to world generation.
+      properties:
+        created_at:
+          description: Creation timestamp
+          format: date-time
+          title: Created At
+          type: string
+        extension:
+          anyOf:
+            - type: string
+            - type: 'null'
+          description: File extension without dot
+          examples:
+            - mp4
+            - png
+            - jpg
+          title: Extension
+        file_name:
+          description: File name
+          title: File Name
+          type: string
+        kind:
+          $ref: '#/components/schemas/MediaAssetKind'
+          description: High-level media type
+          examples:
+            - image
+            - video
+        media_asset_id:
+          description: Server-generated media asset identifier
+          title: Media Asset Id
+          type: string
+        metadata:
+          anyOf:
+            - additionalProperties: true
+              type: object
+            - type: 'null'
+          description: Optional application-specific metadata
+          title: Metadata
+        updated_at:
+          anyOf:
+            - format: date-time
+              type: string
+            - type: 'null'
+          description: Last update timestamp
+          title: Updated At
+      required:
+        - media_asset_id
+        - file_name
+        - kind
+        - created_at
+      title: MediaAsset
+      type: object
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: Detail
+          type: array
+      title: HTTPValidationError
+      type: object
+    MediaAssetKind:
+      description: High-level media asset type.
+      enum:
+        - image
+        - video
+      title: MediaAssetKind
+      type: string
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          title: Location
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+        - loc
+        - msg
+        - type
+      title: ValidationError
+      type: object
+  securitySchemes:
+    ApiKeyAuth:
+      description: API key for authentication. Get your key from the developer portal.
+      in: header
+      name: WLT-Api-Key
+      type: apiKey
+
+````
+
+Built with [Mintlify](https://mintlify.com).

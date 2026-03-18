@@ -1,5 +1,48 @@
 # Marble API Reference — CineBlock
 
+## Key API Reference (Quick Reference)
+
+### Multi-Image Prompt Fields
+| Field | Type | Notes |
+|---|---|---|
+| `type` | `"multi-image"` | Discriminator |
+| `multi_image_prompt` | Array | 2-4 images (or up to 8 if `reconstruct_images: true`) |
+| `multi_image_prompt[].azimuth` | Number \| null | Degrees. Nullable. Ignored in reconstruct mode. |
+| `multi_image_prompt[].content.source` | `"media_asset"` | Our approach |
+| `multi_image_prompt[].content.media_asset_id` | String | From prepare_upload |
+| `text_prompt` | String \| undefined | Optional hybrid text (max 2,000 chars) |
+| `reconstruct_images` | Boolean | Default `false`. `true` = Auto Layout / reconstruction |
+
+### Text Prompt Fields
+| Field | Type | Notes |
+|---|---|---|
+| `type` | `"text"` | Discriminator |
+| `text_prompt` | String | Required (max 2,000 chars) |
+
+### Generation Body Fields
+| Field | Type | Notes |
+|---|---|---|
+| `model` | String | `"Marble 0.1-mini"` or `"Marble 0.1-plus"` |
+| `seed` | Number \| undefined | 0–4,294,967,295 for reproducibility |
+| `display_name` | String \| undefined | Max 64 chars |
+
+### Model Comparison
+| | Mini | Plus |
+|---|---|---|
+| Generation time | 30–45 seconds | 5–10 minutes |
+| Credit cost | ~150–330 | ~1,500–1,600 |
+| USD cost | ~$0.15 | ~$1.50 |
+| Quality | Draft / exploration | Production / sharper / more faithful |
+| Poll timeout needed | 5 minutes | 10 minutes |
+
+### Splat Resolutions
+| Key | Use Case |
+|---|---|
+| `100k` | Fastest load, preview quality |
+| `500k` | Balanced (current default) |
+| `full_res` | Highest fidelity, slower to load |
+
+
 Condensed reference for the World Labs Marble API endpoints used by CineBlock.
 
 **Base URL:** `https://api.worldlabs.ai`
